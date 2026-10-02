@@ -14,7 +14,7 @@ import org.apache.ibatis.annotations.Select;
 public interface TronMonitorAddressMapper extends BaseMapper<TronMonitorAddress> {
 
     /**
-     * 查询当前网络已经保存的最大源地址ID。
+     * 查询指定网络已经保存的最大源地址ID。
      *
      * @param chainNetwork TRON网络
      * @return 最大源地址ID，无数据时返回0

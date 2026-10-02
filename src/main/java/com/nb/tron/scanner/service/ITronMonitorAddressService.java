@@ -26,4 +26,5 @@ public interface ITronMonitorAddressService extends IBaseService<TronMonitorAddr
      * @return 最大源地址ID，无数据时返回0
      */
     long findMaxSourceAddressId(String chainNetwork);
+
 }

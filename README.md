@@ -74,3 +74,12 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 ```bash
 ./gradlew clean build -PuseLocalNbCommon=true
 ```
+
+1.持久化基础：已完成
+2.链服务同步契约：已完成
+3.地址同步闭环：进行中
+4.TRON 节点能力
+5.交易解析
+6.充值发现闭环
+7.固化确认闭环
+8.生产保障
