@@ -43,7 +43,7 @@ class TronAddressIndexLoaderTest {
     }
 
     @Test
-    void shouldLoadCurrentNetworkAddressesAndPublishIndex() {
+    void shouldRestoreAddressIndexAndWatermarkFromDatabase() {
         when(monitorAddressService.listByNetwork("MAINNET"))
                 .thenReturn(List.of(
                         address(11L, "TAddress11", AddressPurpose.DEPOSIT),

@@ -231,14 +231,14 @@ address_status = PENDING_MONITOR
 → 构建完整内存地址索引
 → 查询当前网络最大的 source_address_id
 → 将其设为内存 appliedMaxAddressId
-→ 重试 ACK appliedMaxAddressId
 → 从 appliedMaxAddressId 继续分页同步新地址
+→ 有增量时应用并 ACK 新水位；无增量时重试 ACK 当前水位
 → 地址同步完成
 → scanner readiness = READY
 → 允许 Head 区块扫描任务执行
 ```
 
-只有本地地址全部加载到内存后，数据库最大 `source_address_id` 才能成为安全应用水位。启动时重复 ACK 该水位，可以恢复“地址已经应用成功，但上一次 ACK 响应丢失”的情况。
+只有本地地址全部加载到内存后，数据库最大 `source_address_id` 才能成为安全应用水位。启动后的首次同步会从该水位继续拉取；没有新增地址时重复 ACK 当前水位，有新增地址时 ACK 新水位，从而恢复“地址已经应用成功，但上一次 ACK 响应丢失”的情况。
 
 ### 6.3 单页同步顺序
 

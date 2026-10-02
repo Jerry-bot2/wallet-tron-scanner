@@ -28,6 +28,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -178,6 +179,26 @@ class AddressSyncServiceTest {
         assertThatThrownBy(addressSyncService::syncAddresses).isSameAs(ackFailure);
 
         verify(addressSyncClient, never()).pullNextPage(12L);
+    }
+
+    @Test
+    void shouldRecoverFailedAcknowledgementOnNextSchedule() {
+        RuntimeException ackFailure = new RuntimeException("ack failed");
+        ScannerAddressPageResp addressIncrement = page(
+            List.of(address(12L, "TAddress12")), 12L, false);
+        when(addressIndex.getAppliedMaxAddressId()).thenReturn(10L, 12L);
+        when(addressSyncClient.pullNextPage(10L)).thenReturn(addressIncrement);
+        when(addressSyncClient.pullNextPage(12L)).thenReturn(page(List.of(), 12L, false));
+        when(monitorAddressService.listBySourceIdsOrAddresses(eq("MAINNET"), anyList(), anyList()))
+            .thenReturn(List.of());
+        when(monitorAddressService.saveBatch(anyList())).thenReturn(true);
+        doThrow(ackFailure).doNothing().when(addressSyncClient).acknowledge(12L);
+
+        assertThatThrownBy(addressSyncService::syncAddresses).isSameAs(ackFailure);
+        assertThat(addressSyncService.syncAddresses()).isZero();
+
+        verify(addressSyncClient, times(2)).acknowledge(12L);
+        verify(addressSyncClient).pullNextPage(12L);
     }
 
     private ScannerAddressPageResp page(List<ScannerAddressResp> addresses, long maxAddressId) {

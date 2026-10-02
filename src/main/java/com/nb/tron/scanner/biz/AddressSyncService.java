@@ -52,8 +52,9 @@ public class AddressSyncService {
     public int syncAddresses() {
         long appliedMaxAddressId = addressIndex.getAppliedMaxAddressId();
         int syncedCount = 0;
+        boolean hasMore = true;
 
-        while (true) {
+        while (hasMore) {
             ScannerAddressPageResp addressIncrement = addressSyncClient.pullNextPage(appliedMaxAddressId);
             if (addressIncrement.getAddresses().isEmpty()) {
                 // 没有新增地址时，重复确认当前安全水位，用于恢复上次失败的 ACK。
@@ -64,12 +65,10 @@ public class AddressSyncService {
             appliedMaxAddressId = applyIncrement(addressIncrement);
             addressSyncClient.acknowledge(appliedMaxAddressId);
             syncedCount += addressIncrement.getAddresses().size();
-
-            if (Boolean.TRUE.equals(addressIncrement.getHasMore())) {
-                continue;
-            }
-            return syncedCount;
+            hasMore = Boolean.TRUE.equals(addressIncrement.getHasMore());
         }
+
+        return syncedCount;
     }
 
     /**
