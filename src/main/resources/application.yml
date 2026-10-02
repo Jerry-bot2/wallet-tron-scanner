@@ -1,0 +1,17 @@
+server:
+  port: ${TRON_SCANNER_PORT:8082}
+
+spring:
+  application:
+    name: wallet-tron-scanner
+
+xxl:
+  job:
+    enabled: ${XXL_JOB_ENABLED:false}
+
+nb:
+  tron:
+    scanner:
+      chain-code: TRON
+      chain-network: ${TRON_NETWORK:MAINNET}
+      chain-service-url: ${CHAIN_SERVICE_URL:http://127.0.0.1:8080}
