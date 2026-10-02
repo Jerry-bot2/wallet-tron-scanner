@@ -4,6 +4,15 @@ server:
 spring:
   application:
     name: wallet-tron-scanner
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://127.0.0.1:3306/wallet_tron_scanner?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
 
 xxl:
   job:

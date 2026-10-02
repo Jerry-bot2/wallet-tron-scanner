@@ -31,10 +31,11 @@ java {
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("com.nb:nb-feign-starter:$nbCommonVersion")
-    implementation("com.nb:nb-job-starter:$nbCommonVersion") {
-        exclude(group = "com.nb", module = "nb-mybatis-starter")
-    }
+    implementation("com.nb:nb-job-starter:$nbCommonVersion")
+    implementation("com.nb:nb-mybatis-starter:$nbCommonVersion")
     implementation("com.nb:nb-observability-starter:$nbCommonVersion")
+
+    runtimeOnly("com.mysql:mysql-connector-j")
 
     compileOnly("org.projectlombok:lombok:1.18.46")
     annotationProcessor("org.projectlombok:lombok:1.18.46")

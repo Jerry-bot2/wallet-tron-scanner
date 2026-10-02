@@ -1,5 +1,6 @@
 package com.nb.tron.scanner;
 
+import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.openfeign.EnableFeignClients;
@@ -11,6 +12,7 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
  * Date: 02.10.26
  */
 @EnableFeignClients
+@MapperScan("com.nb.tron.scanner.mapper")
 @SpringBootApplication
 public class TronScannerApplication {
 
