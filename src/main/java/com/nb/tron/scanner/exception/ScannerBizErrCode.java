@@ -20,6 +20,8 @@ public enum ScannerBizErrCode implements IBizErrCode {
     ADDRESS_INDEX_DUPLICATE(911003, "地址内存索引存在重复地址"),
     ADDRESS_SYNC_REMOTE_CALL_FAILED(912001, "查询链服务监控地址失败"),
     ADDRESS_SYNC_PAGE_INVALID(912002, "链服务监控地址分页数据不合法"),
+    ADDRESS_SYNC_DATA_CONFLICT(912003, "地址同步数据与本地记录不一致"),
+    ADDRESS_SYNC_SAVE_FAILED(912004, "地址同步数据保存失败"),
     ;
 
     private final Integer code;

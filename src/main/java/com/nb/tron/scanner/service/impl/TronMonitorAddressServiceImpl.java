@@ -6,6 +6,7 @@ import com.nb.tron.scanner.mapper.TronMonitorAddressMapper;
 import com.nb.tron.scanner.service.ITronMonitorAddressService;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -27,5 +28,21 @@ public class TronMonitorAddressServiceImpl extends ServiceImpl<TronMonitorAddres
     @Override
     public long findMaxSourceAddressId(String chainNetwork) {
         return baseMapper.selectMaxSourceAddressId(chainNetwork);
+    }
+
+    @Override
+    public List<TronMonitorAddress> listBySourceIdsOrAddresses(String chainNetwork,
+                                                              Collection<Long> sourceAddressIds,
+                                                              Collection<String> addresses) {
+        if (sourceAddressIds.isEmpty() || addresses.isEmpty()) {
+            return List.of();
+        }
+        return lambdaQuery()
+                .and(query -> query
+                        .in(TronMonitorAddress::getSourceAddressId, sourceAddressIds)
+                        .or(addressQuery -> addressQuery
+                                .eq(TronMonitorAddress::getChainNetwork, chainNetwork)
+                                .in(TronMonitorAddress::getAddress, addresses)))
+                .list();
     }
 }
