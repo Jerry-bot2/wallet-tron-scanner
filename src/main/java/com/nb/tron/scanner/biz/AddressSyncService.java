@@ -1,11 +1,15 @@
 package com.nb.tron.scanner.biz;
 
+import com.nb.chain.client.enums.AddressPurpose;
+import com.nb.chain.client.resp.ScannerAddressPageResp;
 import com.nb.chain.client.resp.ScannerAddressResp;
 import com.nb.core.exception.BizAssert;
 import com.nb.mybatis.transaction.TransactionSupport;
+import com.nb.tron.scanner.client.AddressSyncClient;
 import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.entity.TronMonitorAddress;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
+import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.service.ITronMonitorAddressService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -19,7 +23,7 @@ import java.util.Objects;
 /**
  * TRON 监控地址同步服务。
  *
- * <p>当前阶段负责将链服务地址幂等保存到扫描器本地数据库。</p>
+ * <p>负责将链服务地址幂等保存到本地数据库，并增量应用到内存索引。</p>
  * <p>
  * Author: bin jack
  * Date: 02.10.26
@@ -34,18 +38,58 @@ public class AddressSyncService {
 
     private final TransactionSupport transactionSupport;
 
-    /**
-     * 幂等保存一页监控地址。
-     *
-     * <p>本地记录与同步数据完全一致时视为成功；相同ID或地址对应不同数据时终止同步。</p>
-     */
-    public void saveAddresses(List<ScannerAddressResp> addresses) {
-        if (addresses.isEmpty()) {
-            return;
-        }
+    private final TronAddressIndex addressIndex;
 
+    private final AddressSyncClient addressSyncClient;
+
+    /**
+     * 增量同步平台监控地址。
+     *
+     * <p>1.按本地水位拉取增量；2.逐页保存数据库并写入内存；3.向链服务确认新水位。</p>
+     *
+     * @return 本轮成功同步的地址数量
+     */
+    public int syncAddresses() {
+        long appliedMaxAddressId = addressIndex.getAppliedMaxAddressId();
+        int syncedCount = 0;
+
+        while (true) {
+            ScannerAddressPageResp addressIncrement = addressSyncClient.pullNextPage(appliedMaxAddressId);
+            if (addressIncrement.getAddresses().isEmpty()) {
+                // 没有新增地址时，重复确认当前安全水位，用于恢复上次失败的 ACK。
+                addressSyncClient.acknowledge(appliedMaxAddressId);
+                return syncedCount;
+            }
+
+            appliedMaxAddressId = applyIncrement(addressIncrement);
+            addressSyncClient.acknowledge(appliedMaxAddressId);
+            syncedCount += addressIncrement.getAddresses().size();
+
+            if (Boolean.TRUE.equals(addressIncrement.getHasMore())) {
+                continue;
+            }
+            return syncedCount;
+        }
+    }
+
+    /**
+     * 持久化并应用一批增量监控地址。
+     *
+     * <p>先在本地事务中幂等保存地址，事务提交后再更新内存索引和应用水位。</p>
+     */
+    long applyIncrement(ScannerAddressPageResp addressIncrement) {
+        List<ScannerAddressResp> addresses = addressIncrement.getAddresses();
         List<TronMonitorAddress> monitorAddresses = toMonitorAddresses(addresses);
         transactionSupport.execute(() -> persistAddresses(monitorAddresses));
+        return addressIndex.applyIncrement(toAddressIndex(addresses), addressIncrement.getMaxAddressId());
+    }
+
+    private Map<String, AddressPurpose> toAddressIndex(List<ScannerAddressResp> addresses) {
+        Map<String, AddressPurpose> purposeByAddress = new HashMap<>(addresses.size());
+        for (ScannerAddressResp address : addresses) {
+            purposeByAddress.put(address.getAddress(), address.getAddressPurpose());
+        }
+        return purposeByAddress;
     }
 
     private void persistAddresses(List<TronMonitorAddress> monitorAddresses) {

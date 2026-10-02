@@ -2,6 +2,7 @@ package com.nb.tron.scanner.client;
 
 import com.nb.chain.client.api.ChainScannerClient;
 import com.nb.chain.client.enums.AddressPurpose;
+import com.nb.chain.client.req.ScannerAddressAckReq;
 import com.nb.chain.client.resp.ScannerAddressPageResp;
 import com.nb.chain.client.resp.ScannerAddressResp;
 import com.nb.core.exception.BizException;
@@ -10,6 +11,7 @@ import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 
@@ -63,6 +65,34 @@ class AddressSyncClientTest {
             .isInstanceOf(BizException.class)
             .extracting(exception -> ((BizException) exception).getErrorCode())
             .isEqualTo(ScannerBizErrCode.ADDRESS_SYNC_PAGE_INVALID);
+    }
+
+    @Test
+    void shouldAcknowledgeAppliedAddressWatermark() {
+        when(chainScannerClient.ackAddressWatermark(org.mockito.ArgumentMatchers.any()))
+            .thenReturn(Result.success());
+
+        addressSyncClient.acknowledge(15L);
+
+        ArgumentCaptor<ScannerAddressAckReq> requestCaptor = ArgumentCaptor.forClass(ScannerAddressAckReq.class);
+        verify(chainScannerClient).ackAddressWatermark(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().getChainCode()).isEqualTo("TRON");
+        assertThat(requestCaptor.getValue().getAppliedMaxAddressId()).isEqualTo(15L);
+    }
+
+    @Test
+    void shouldRejectFailedAddressWatermarkAcknowledgement() {
+        Result<Void> failedResult = Result.<Void>failBuilder()
+            .code("500")
+            .msg("failed")
+            .build();
+        when(chainScannerClient.ackAddressWatermark(org.mockito.ArgumentMatchers.any()))
+            .thenReturn(failedResult);
+
+        assertThatThrownBy(() -> addressSyncClient.acknowledge(15L))
+            .isInstanceOf(BizException.class)
+            .extracting(exception -> ((BizException) exception).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.ADDRESS_SYNC_ACK_FAILED);
     }
 
     private ScannerAddressPageResp page(List<ScannerAddressResp> addresses,

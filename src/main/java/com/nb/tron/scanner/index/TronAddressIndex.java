@@ -5,6 +5,7 @@ import com.nb.core.exception.BizAssert;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import org.springframework.stereotype.Component;
 
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -73,10 +74,33 @@ public class TronAddressIndex {
      *
      * <p>调用后由本索引独占传入 Map，调用方不得继续修改。</p>
      */
-    void replaceAll(ConcurrentMap<String, AddressPurpose> addresses, long appliedMaxAddressId) {
+    synchronized void replaceAll(ConcurrentMap<String, AddressPurpose> addresses, long appliedMaxAddressId) {
         BizAssert.notNull(addresses, ScannerBizErrCode.ADDRESS_INDEX_DATA_INVALID);
         BizAssert.isTrue(appliedMaxAddressId >= 0, ScannerBizErrCode.ADDRESS_INDEX_DATA_INVALID);
         stateRef.set(new IndexState(addresses, appliedMaxAddressId, true));
+    }
+
+    /**
+     * 将增量监控地址应用到内存索引。
+     *
+     * <p>先核对已有地址用途，再幂等加入新地址；本次增量全部应用完成后才推进内存水位。</p>
+     *
+     * @param addressPurposeByAddress 地址与用途映射
+     * @param appliedMaxAddressId 本次增量的最大链服务地址ID
+     * @return 已经进入内存的新水位
+     */
+    public synchronized long applyIncrement(Map<String, AddressPurpose> addressPurposeByAddress, long appliedMaxAddressId) {
+        IndexState currentState = requireReadyState();
+        BizAssert.isTrue(appliedMaxAddressId >= currentState.appliedMaxAddressId(), ScannerBizErrCode.ADDRESS_INDEX_DATA_INVALID);
+
+        for (Map.Entry<String, AddressPurpose> entry : addressPurposeByAddress.entrySet()) {
+            AddressPurpose existingPurpose = currentState.addresses().get(entry.getKey());
+            BizAssert.isTrue(existingPurpose == null || existingPurpose == entry.getValue(), ScannerBizErrCode.ADDRESS_INDEX_CONFLICT);
+        }
+
+        addressPurposeByAddress.forEach(currentState.addresses()::putIfAbsent);
+        stateRef.set(new IndexState(currentState.addresses(), appliedMaxAddressId, true));
+        return appliedMaxAddressId;
     }
 
     private IndexState requireReadyState() {
