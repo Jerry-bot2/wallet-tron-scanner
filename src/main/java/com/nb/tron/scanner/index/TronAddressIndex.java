@@ -58,7 +58,7 @@ public class TronAddressIndex {
      * 当前已经加载到内存的最大链服务地址ID。
      */
     public long getAppliedMaxAddressId() {
-        return stateRef.get().appliedMaxAddressId();
+        return requireReadyState().appliedMaxAddressId();
     }
 
     /**

@@ -26,6 +26,10 @@ class TronAddressIndexTest {
                 .isInstanceOf(BizException.class)
                 .extracting(exception -> ((BizException) exception).getErrorCode())
                 .isEqualTo(ScannerBizErrCode.ADDRESS_INDEX_NOT_READY);
+        assertThatThrownBy(addressIndex::getAppliedMaxAddressId)
+                .isInstanceOf(BizException.class)
+                .extracting(exception -> ((BizException) exception).getErrorCode())
+                .isEqualTo(ScannerBizErrCode.ADDRESS_INDEX_NOT_READY);
     }
 
     @Test

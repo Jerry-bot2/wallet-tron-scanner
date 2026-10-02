@@ -18,6 +18,8 @@ public enum ScannerBizErrCode implements IBizErrCode {
     ADDRESS_INDEX_NOT_READY(911001, "地址内存索引尚未就绪"),
     ADDRESS_INDEX_DATA_INVALID(911002, "地址内存索引数据不合法"),
     ADDRESS_INDEX_DUPLICATE(911003, "地址内存索引存在重复地址"),
+    ADDRESS_SYNC_REMOTE_CALL_FAILED(912001, "查询链服务监控地址失败"),
+    ADDRESS_SYNC_PAGE_INVALID(912002, "链服务监控地址分页数据不合法"),
     ;
 
     private final Integer code;
