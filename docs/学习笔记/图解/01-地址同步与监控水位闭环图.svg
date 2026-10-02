@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1080" viewBox="0 0 1440 1080">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0 0v6l9-3z" fill="#53627a"/>
+    </marker>
+    <style>
+      text{font-family:"PingFang SC","Microsoft YaHei",sans-serif;fill:#172033}
+      .title{font-size:34px;font-weight:700}.subtitle{font-size:18px;fill:#607089}
+      .heading{font-size:21px;font-weight:700}.body{font-size:16px}.small{font-size:14px;fill:#607089}
+      .card{fill:#fff;stroke:#d9e2ef;stroke-width:2}.purple{fill:#f2ecff;stroke:#8f6bd4;stroke-width:2}
+      .blue{fill:#eaf2ff;stroke:#5b8def;stroke-width:2}.yellow{fill:#fff6df;stroke:#efb94d;stroke-width:2}
+      .green{fill:#eaf7ef;stroke:#50a66d;stroke-width:2}.red{fill:#ffedf0;stroke:#da6b7a;stroke-width:2}
+      .flow{stroke:#53627a;stroke-width:3;fill:none;marker-end:url(#arrow)}
+      .dash{stroke:#8491a6;stroke-width:2;stroke-dasharray:8 7;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+
+  <rect width="1440" height="1080" fill="#f4f7fc"/>
+  <text x="55" y="62" class="title">地址从生成到可用：Scanner 确认监控后，Chain Server 才能激活</text>
+  <text x="55" y="96" class="subtitle">示例：Scanner 当前水位为 100，Chain Server 新生成 addressId 101～120。</text>
+
+  <text x="55" y="142" class="heading">正常事实链</text>
+
+  <rect x="45" y="170" width="190" height="145" rx="17" class="purple"/>
+  <text x="67" y="207" class="heading">① 生成地址</text>
+  <text x="67" y="241" class="body">Chain Server DB</text>
+  <text x="67" y="272" class="body">101～120</text>
+  <text x="67" y="299" class="small">PENDING_MONITOR</text>
+
+  <rect x="275" y="170" width="190" height="145" rx="17" class="blue"/>
+  <text x="297" y="207" class="heading">② 增量拉取</text>
+  <text x="297" y="241" class="body">AddressSyncJob</text>
+  <text x="297" y="272" class="body">afterId = 100</text>
+  <text x="297" y="299" class="small">按 addressId 升序</text>
+
+  <rect x="505" y="170" width="190" height="145" rx="17" class="yellow"/>
+  <text x="527" y="207" class="heading">③ 本地保存</text>
+  <text x="527" y="241" class="body">Scanner MySQL</text>
+  <text x="527" y="272" class="body">幂等保存整页</text>
+  <text x="527" y="299" class="small">失败不推进水位</text>
+
+  <rect x="735" y="170" width="190" height="145" rx="17" class="green"/>
+  <text x="757" y="207" class="heading">④ 写入内存</text>
+  <text x="757" y="241" class="body">TronAddressIndex</text>
+  <text x="757" y="272" class="body">水位 100 → 120</text>
+  <text x="757" y="299" class="small">整页成功后推进</text>
+
+  <rect x="965" y="170" width="180" height="145" rx="17" class="blue"/>
+  <text x="987" y="207" class="heading">⑤ ACK 水位</text>
+  <text x="987" y="241" class="body">appliedMaxId</text>
+  <text x="987" y="272" class="body">= 120</text>
+  <text x="987" y="299" class="small">允许重复提交</text>
+
+  <rect x="1185" y="170" width="210" height="145" rx="17" class="green"/>
+  <text x="1207" y="207" class="heading">⑥ 批量激活</text>
+  <text x="1207" y="241" class="body">id ≤ 120</text>
+  <text x="1207" y="272" class="body">PENDING → ACTIVE</text>
+  <text x="1207" y="299" class="small">仅当前链和网络</text>
+
+  <path d="M235 242H275" class="flow"/><path d="M465 242H505" class="flow"/>
+  <path d="M695 242H735" class="flow"/><path d="M925 242H965" class="flow"/>
+  <path d="M1145 242H1185" class="flow"/>
+
+  <rect x="1040" y="350" width="355" height="105" rx="17" class="green"/>
+  <text x="1070" y="388" class="heading">⑦ 地址进入可分配集合</text>
+  <text x="1070" y="421" class="body">只允许分配 ACTIVE + AVAILABLE</text>
+  <text x="1070" y="446" class="small">Scanner 未确认的地址永远不可使用</text>
+  <path d="M1290 315V350" class="flow"/>
+
+  <rect x="45" y="355" width="925" height="100" rx="17" class="red"/>
+  <text x="72" y="391" class="heading">唯一激活门禁</text>
+  <text x="72" y="424" class="body">数据库保存成功 ≠ 已经受到实时监控；只有地址进入内存索引并推进水位后，Scanner 才能 ACK。</text>
+  <text x="72" y="449" class="small">禁止使用 Chain Server 最大 ID 或 Scanner 数据库最大 ID 绕过内存应用状态提前激活。</text>
+
+  <text x="55" y="515" class="heading">三份事实：职责不同，不能互相替代</text>
+
+  <rect x="45" y="545" width="415" height="140" rx="17" class="purple"/>
+  <text x="70" y="583" class="heading">Chain Server：业务状态</text>
+  <text x="70" y="618" class="body">chain_address.address_status</text>
+  <text x="70" y="650" class="small">PENDING_MONITOR：禁止分配</text>
+  <text x="70" y="674" class="small">ACTIVE：已经确认处于 Scanner 监控中</text>
+
+  <rect x="510" y="545" width="415" height="140" rx="17" class="yellow"/>
+  <text x="535" y="583" class="heading">Scanner MySQL：恢复事实</text>
+  <text x="535" y="618" class="body">tron_monitor_address</text>
+  <text x="535" y="650" class="small">持久保存 addressId / address / purpose</text>
+  <text x="535" y="674" class="small">服务重启后用它重建完整内存索引</text>
+
+  <rect x="975" y="545" width="420" height="140" rx="17" class="green"/>
+  <text x="1000" y="583" class="heading">Scanner 内存：实时监控事实</text>
+  <text x="1000" y="618" class="body">TronAddressIndex + appliedMaxId</text>
+  <text x="1000" y="650" class="small">扫块线程实际查询的地址集合</text>
+  <text x="1000" y="674" class="small">只有这里的水位可以对外 ACK</text>
+
+  <path d="M460 615H510" class="dash"/><path d="M925 615H975" class="dash"/>
+
+  <text x="55" y="745" class="heading">三个故障窗口：重复可以，提前激活不可以</text>
+
+  <rect x="45" y="775" width="415" height="160" rx="17" class="yellow"/>
+  <text x="70" y="813" class="heading">A. 数据库写入前失败</text>
+  <text x="70" y="848" class="body">内存水位仍为 100，不发送 ACK</text>
+  <text x="70" y="881" class="small">下一次调度继续使用 afterId=100</text>
+  <text x="70" y="907" class="small">101～120 会被重新拉取</text>
+
+  <rect x="510" y="775" width="415" height="160" rx="17" class="red"/>
+  <text x="535" y="813" class="heading">B. 数据库成功，内存失败</text>
+  <text x="535" y="848" class="body">地址仍保持 PENDING_MONITOR</text>
+  <text x="535" y="881" class="small">下一次按旧水位重复拉取</text>
+  <text x="535" y="907" class="small">本地幂等核对后再次写入内存</text>
+
+  <rect x="975" y="775" width="420" height="160" rx="17" class="blue"/>
+  <text x="1000" y="813" class="heading">C. 内存成功，ACK 失败</text>
+  <text x="1000" y="848" class="body">本地水位已为 120，远端仍 Pending</text>
+  <text x="1000" y="881" class="small">下一次调度从 afterId=120 继续</text>
+  <text x="1000" y="907" class="small">补发 120 或 ACK 更大水位即可恢复</text>
+
+  <rect x="45" y="975" width="1350" height="65" rx="15" class="blue"/>
+  <text x="72" y="1004" class="heading">重启恢复公式</text>
+  <text x="275" y="1004" class="body">本地表完整加载 → 内存 max(source_address_id) → 增量拉取 → 应用成功后 ACK → 地址激活</text>
+  <text x="72" y="1030" class="small">核心不变量：ACK 水位之前的每个地址，都必须已经持久化且能被当前 Scanner 内存查询命中。</text>
+</svg>
