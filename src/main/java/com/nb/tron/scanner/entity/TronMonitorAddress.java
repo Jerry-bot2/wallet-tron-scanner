@@ -2,7 +2,7 @@ package com.nb.tron.scanner.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
-import com.nb.tron.scanner.enums.AddressPurpose;
+import com.nb.chain.client.enums.AddressPurpose;
 import lombok.Data;
 import lombok.experimental.Accessors;
 

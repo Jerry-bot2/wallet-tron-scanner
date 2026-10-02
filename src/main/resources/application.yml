@@ -19,8 +19,10 @@ xxl:
     enabled: ${XXL_JOB_ENABLED:false}
 
 nb:
+  chain:
+    client:
+      url: ${CHAIN_SERVICE_URL:http://127.0.0.1:8080}
   tron:
     scanner:
       chain-code: TRON
       chain-network: ${TRON_NETWORK:MAINNET}
-      chain-service-url: ${CHAIN_SERVICE_URL:http://127.0.0.1:8080}

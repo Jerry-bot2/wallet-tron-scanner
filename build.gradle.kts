@@ -8,6 +8,7 @@ group = providers.gradleProperty("projectGroup").get()
 version = providers.gradleProperty("projectVersion").get()
 
 val nbCommonVersion: String by project
+val chainClientVersion: String by project
 val springCloudVersion: String by project
 
 repositories {
@@ -31,6 +32,7 @@ java {
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("com.nb:nb-feign-starter:$nbCommonVersion")
+    implementation("com.nb:chain-client:$chainClientVersion")
     implementation("com.nb:nb-job-starter:$nbCommonVersion")
     implementation("com.nb:nb-mybatis-starter:$nbCommonVersion")
     implementation("com.nb:nb-observability-starter:$nbCommonVersion")

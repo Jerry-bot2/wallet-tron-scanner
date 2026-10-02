@@ -9,7 +9,6 @@ wallet-tron-scanner
 ├── client   链服务和 TRON 节点客户端
 ├── config   TRON 网络与同步配置
 ├── entity   扫描器本地数据库实体
-├── enums    扫描器内部枚举
 ├── job      地址同步和后续扫块任务入口
 ├── mapper   MyBatis Mapper
 ├── model    扫描器内部模型
@@ -21,7 +20,7 @@ wallet-tron-scanner
 
 ## 当前阶段
 
-扫描器两张基础表及其基础持久化能力已经就绪。下一步接入 `chain-client` 并完成地址同步闭环：
+扫描器两张基础表、持久化能力和 `chain-client` 契约已经就绪。下一步实现链服务接口和扫描器同步流程：
 
 ```text
 从 wallet-chain-server 增量拉取地址
@@ -47,11 +46,14 @@ MYSQL_PASSWORD=
 
 ## 本地构建
 
-项目默认从 Maven Local 读取 `nb-common` 组件。首次构建前，在本机发布一次：
+项目默认从 Maven Local 读取 `nb-common` 和 `chain-client`。首次构建前，在本机发布一次：
 
 ```bash
 cd ../../uuwallet/nb-common
 ./gradlew publishToMavenLocal
+
+cd ../../mypay/wallet-chain-server
+./gradlew :chain-client:publishToMavenLocal
 ```
 
 然后执行：
