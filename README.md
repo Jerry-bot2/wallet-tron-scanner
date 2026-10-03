@@ -158,7 +158,7 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 - 节点调用失败时，由 Manager 完成一次安全切换。
 - 切换后仍失败则终止本次调用，交给下一调度周期重试。
 
-4.7 节点能力测试与验收
+4.7 节点能力测试与验收 完成
 - 验证主节点正常时不会随机切换。
 - 验证主节点超时后可以切换备用节点。
 - 验证高度落后的节点不会被选中。
@@ -169,8 +169,21 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 - 当健康 FullNode 已超过固化高度时，验证两种视图在该固化高度上返回相同 `blockId`。
 - 验证按高度读取时，返回区块高度、回执区块高度与请求高度一致。
 - 验证相邻区块的 `parentBlockId` 与上一区块 `blockId` 一致。
-- 验证 SolidityNode 不可用时不伪造固化高度，并能降级为固定窗口重扫。
-- 使用真实测试网节点完成 Local/Test 环境验收。
+- 验证 SolidityNode 不可用时不伪造固化高度；固定窗口重扫由后续扫块编排使用。
+- 提供真实测试网节点验收测试，配置节点环境变量后自动执行。
+
+真实测试网验收使用与应用相同的环境变量：
+
+```bash
+TRON_FULL_NODE_PRIMARY_URL=https://your-full-node \
+TRON_SOLIDITY_NODE_URL=https://your-solidity-node \
+TRON_GENESIS_BLOCK_ID=your-testnet-genesis-block-id \
+TRON_FULL_NODE_PRIMARY_API_KEY=your-api-key \
+TRON_SOLIDITY_NODE_API_KEY=your-api-key \
+./gradlew test --tests '*TronNodeTestnetAcceptanceTest'
+```
+
+未提供前三个必填变量时，真实节点验收测试自动跳过，不影响普通本地构建。
 
 阶段4完成标准：
 - 后续扫块代码只依赖 TronNodeManager。

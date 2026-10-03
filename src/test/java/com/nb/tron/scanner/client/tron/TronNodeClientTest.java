@@ -94,6 +94,61 @@ class TronNodeClientTest {
     }
 
     @Test
+    void shouldRejectReceiptFromDifferentBlockHeight() {
+        String transaction = """
+            {"txID":"tx-1","raw_data":{"contract":[{"type":"TransferContract"}]}}
+            """;
+        String receipt = """
+            {"id":"tx-1","blockNumber":99,"result":"SUCESS","log":[]}
+            """;
+        server.createContext("/wallet/getblockbynum", exchange ->
+            respond(exchange, 200, blockJson(100L, "block-100", "block-99", transaction)));
+        server.createContext("/wallet/gettransactioninfobyblocknum", exchange ->
+            respond(exchange, 200, "[" + receipt + "]"));
+
+        assertThatThrownBy(() -> nodeClient.getBlockDataByHeight(
+            endpoint("full-primary", TronNodeRole.FULL_NODE, null), 100L))
+            .isInstanceOf(BizException.class)
+            .extracting(exception -> ((BizException) exception).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
+    }
+
+    @Test
+    void shouldRejectBlockWithUnexpectedHeight() {
+        server.createContext("/wallet/getblockbynum", exchange ->
+            respond(exchange, 200, blockJson(99L, "block-99", "block-98", "")));
+
+        assertThatThrownBy(() -> nodeClient.getBlockDataByHeight(
+            endpoint("full-primary", TronNodeRole.FULL_NODE, null), 100L))
+            .isInstanceOf(BizException.class)
+            .extracting(exception -> ((BizException) exception).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
+    }
+
+    @Test
+    void shouldLinkAdjacentBlocksByParentBlockId() {
+        server.createContext("/wallet/getblockbynum", exchange -> {
+            String requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            if (requestBody.contains("101")) {
+                respond(exchange, 200, blockJson(101L, "block-101", "block-100", ""));
+                return;
+            }
+            respond(exchange, 200, blockJson(100L, "block-100", "block-99", ""));
+        });
+        server.createContext("/wallet/gettransactioninfobyblocknum", exchange ->
+            respond(exchange, 200, "[]"));
+        TronNodeEndpointProperties fullNode = endpoint(
+            "full-primary",
+            TronNodeRole.FULL_NODE,
+            null);
+
+        TronBlockData block100 = nodeClient.getBlockDataByHeight(fullNode, 100L);
+        TronBlockData block101 = nodeClient.getBlockDataByHeight(fullNode, 101L);
+
+        assertThat(block101.parentBlockId()).isEqualTo(block100.blockId());
+    }
+
+    @Test
     void shouldRejectMissingBlockBeforeQueryingReceipts() {
         server.createContext("/wallet/getblockbynum", exchange -> respond(exchange, 200, "{}"));
 

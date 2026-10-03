@@ -18,6 +18,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -99,6 +101,24 @@ class TronNodeHealthServiceTest {
 
         assertThat(states).extracting(TronNodeRuntimeState::healthStatus)
             .containsExactly(TronNodeHealthStatus.UNKNOWN, TronNodeHealthStatus.HEALTHY);
+    }
+
+    @Test
+    void shouldRejectNodeFromDifferentNetworkBeforeReadingHeight() {
+        TronNodeEndpointProperties wrongNetworkNode = endpoint(
+            "full-wrong-network",
+            TronNodeRole.FULL_NODE);
+        scannerProperties.getNode().setNodes(List.of(wrongNetworkNode));
+        when(nodeClient.getBlockHeaderByHeight(wrongNetworkNode, 0L))
+            .thenReturn(height(wrongNetworkNode, 0L, "other-genesis-block-id"));
+
+        List<TronNodeRuntimeState> states = healthService.refreshNodeStates();
+
+        assertThat(states).singleElement().satisfies(state -> {
+            assertThat(state.healthStatus()).isEqualTo(TronNodeHealthStatus.UNKNOWN);
+            assertThat(state.latestBlockHeight()).isNull();
+        });
+        verify(nodeClient, never()).getHeadHeight(wrongNetworkNode);
     }
 
     private void mockHealthyNode(TronNodeEndpointProperties endpoint, long blockHeight) {

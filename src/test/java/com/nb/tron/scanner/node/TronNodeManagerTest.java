@@ -92,6 +92,69 @@ class TronNodeManagerTest {
     }
 
     @Test
+    void shouldKeepHeadAndSolidHeightAsDifferentChainViews() {
+        TronNodeEndpointProperties fullNode = endpoint("full-primary", TronNodeRole.FULL_NODE, 1);
+        TronNodeEndpointProperties solidityNode = endpoint(
+            "solidity-primary",
+            TronNodeRole.SOLIDITY_NODE,
+            1);
+        scannerProperties.getNode().setNodes(List.of(fullNode, solidityNode));
+        when(nodeHealthService.getNodeStates()).thenReturn(List.of(
+            healthyState(fullNode, 110L, Instant.now().minusSeconds(120)),
+            healthyState(solidityNode, 100L, Instant.now().minusSeconds(120))));
+        when(nodeClient.getHeadHeight(fullNode)).thenReturn(nodeHeight(fullNode, 110L));
+        when(nodeClient.getSolidHeight(solidityNode)).thenReturn(nodeHeight(solidityNode, 100L));
+
+        TronNodeHeight headHeight = nodeManager.getHeadHeight();
+        TronNodeHeight solidHeight = nodeManager.getSolidHeight();
+
+        assertThat(headHeight.blockHeight()).isEqualTo(110L);
+        assertThat(solidHeight.blockHeight()).isEqualTo(100L);
+    }
+
+    @Test
+    void shouldReadSameBlockIdFromFullNodeAtSolidHeight() {
+        TronNodeEndpointProperties fullNode = endpoint("full-primary", TronNodeRole.FULL_NODE, 1);
+        TronNodeEndpointProperties solidityNode = endpoint(
+            "solidity-primary",
+            TronNodeRole.SOLIDITY_NODE,
+            1);
+        scannerProperties.getNode().setNodes(List.of(fullNode, solidityNode));
+        when(nodeHealthService.getNodeStates()).thenReturn(List.of(
+            healthyState(fullNode, 110L, Instant.now().minusSeconds(120)),
+            healthyState(solidityNode, 100L, Instant.now().minusSeconds(120))));
+        TronNodeHeight solidHeight = nodeHeight(solidityNode, 100L);
+        TronBlockData solidBlock = blockData(fullNode, 100L);
+        when(nodeClient.getSolidHeight(solidityNode)).thenReturn(solidHeight);
+        when(nodeClient.getBlockDataByHeight(fullNode, 100L)).thenReturn(solidBlock);
+
+        TronNodeHeight actualSolidHeight = nodeManager.getSolidHeight();
+        TronBlockData actualSolidBlock = nodeManager.getBlockDataByHeight(
+            actualSolidHeight.blockHeight());
+
+        assertThat(actualSolidBlock.blockId()).isEqualTo(actualSolidHeight.blockId());
+    }
+
+    @Test
+    void shouldFailExplicitlyWhenSolidityNodeIsUnavailable() {
+        TronNodeEndpointProperties fullNode = endpoint("full-primary", TronNodeRole.FULL_NODE, 1);
+        TronNodeEndpointProperties solidityNode = endpoint(
+            "solidity-primary",
+            TronNodeRole.SOLIDITY_NODE,
+            1);
+        scannerProperties.getNode().setNodes(List.of(fullNode, solidityNode));
+        when(nodeHealthService.getNodeStates()).thenReturn(List.of(
+            healthyState(fullNode, 110L, Instant.now().minusSeconds(120)),
+            unhealthyState(solidityNode)));
+
+        assertThatThrownBy(nodeManager::getSolidHeight)
+            .isInstanceOf(BizException.class)
+            .extracting(exception -> ((BizException) exception).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.TRON_NODE_UNAVAILABLE);
+        verify(nodeClient, never()).getSolidHeight(solidityNode);
+    }
+
+    @Test
     void shouldReadBlockAndReceiptsFromOneSelectedNode() {
         TronNodeEndpointProperties primary = endpoint("full-primary", TronNodeRole.FULL_NODE, 1);
         scannerProperties.getNode().setNodes(List.of(primary));
