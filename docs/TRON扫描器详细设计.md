@@ -8,10 +8,10 @@
 2. 将地址保存为本地索引并加载到内存，供扫块过程快速匹配。
 3. 从 FullNode 按高度顺序扫描最新区块。
 4. 解析 TRX 和配置的 TRC20 转账，及时发现进入平台地址的充值。
-5. 将充值发现事实可靠提交给 `wallet-chain-server`，由链服务定时确认是否已经固化。
+5. 将充值发现事实可靠发送到 Kafka，由 `wallet-chain-server` 消费并定时确认是否已经固化。
 6. 持久化扫描进度，服务重启后从上次成功位置继续。
 
-设计优先保证不漏单、可重放和边界清晰，同时不在首期引入 Kafka、Outbox、Redis 或完整区块索引。
+设计优先保证不漏单、可重放和边界清晰。充值发现使用现有 Kafka；Scanner 不额外引入 Outbox、Redis 或完整区块索引。
 
 ---
 
@@ -35,7 +35,7 @@ wallet-bitcoin-scanner
 
 扫描器拥有自己的 MySQL schema。它可以与链服务共用同一个 AWS RDS 实例，但必须使用独立 schema 和账号。
 
-扫描器不直接连接 `wallet-chain-server` 数据库。地址和币种配置通过内部接口同步，充值事实也通过内部接口提交。
+扫描器不直接连接 `wallet-chain-server` 数据库。地址和币种配置通过内部接口同步，充值事实通过 Kafka 发送。
 
 ### 2.3 数据库是本地索引
 
@@ -64,7 +64,8 @@ flowchart LR
     NP --> SCAN[Head 区块扫描服务]
     SNAPSHOT --> SCAN
     SCAN --> PARSER[TRX / TRC20 解析器]
-    PARSER -->|充值发现事实| CS
+    PARSER -->|ObservedBlockEvent| KAFKA[Kafka]
+    KAFKA -->|充值发现事件| CS
     SCAN --> SDB
 ```
 
@@ -74,7 +75,7 @@ flowchart LR
 - 管理 `chain_address` 及地址状态。
 - 提供币种配置和地址增量同步接口。
 - 接收地址监控 ACK，将 `PENDING_MONITOR` 推进为 `ACTIVE`。
-- 幂等接收充值事实并写入 `chain_deposit`。
+- 消费充值发现事件，幂等写入 `chain_deposit`。
 - 定时查询 SolidityNode，核验 `CONFIRMING` 充值并推进为 `CONFIRMED` 或 `ORPHANED`。
 - 根据地址和绑定关系确定充值所属用户。
 - 通知出入金服务处理充值业务。
@@ -87,8 +88,8 @@ flowchart LR
 - 顺序扫描 Head 区块并记录扫描高度。
 - 读取最新固化高度，只用于确定未固化区块的重扫范围。
 - 解析 TRX 和 TRC20 Transfer 事件。
-- 仅上报与平台地址有关的链上事实。
-- 在整块处理成功后推进扫描游标。
+- 仅发送与平台地址有关的链上事实。
+- 在 Kafka Broker ACK 成功后推进扫描游标。
 
 ### 3.3 明确禁止
 
@@ -428,24 +429,28 @@ scanner 不换算展示金额。`wallet-chain-server` 根据币种配置中的 `
 
 ---
 
-## 9. 链服务充值接收接口
+## 9. 充值发现 Kafka 事件
 
-scanner 使用按区块批量提交的充值发现接口：
+scanner 按区块发送充值发现事件：
 
 ```text
-POST /internal/v1/scanner/observed-blocks
+Topic: wallet.chain.deposit.discovered
+Key:   chainCode + ":" + chainNetwork
+Value: ObservedBlockEvent
 ```
 
-请求包含区块信息和本区块识别出的充值事件列表。链服务处理时：
+事件契约定义在 `chain-client`。`ObservedBlockEvent` 保存链、网络、区块高度、当前区块 Hash、父区块 Hash、区块时间和本区块充值事实列表。每条 `DepositDiscoveryEvent` 保存币种、合约地址、`txId + eventIndex`、付款地址、收款地址和 `rawAmount`。
+
+链服务消费消息时：
 
 1. 校验链、网络和区块字段。
 2. 根据 `currency + contractAddress` 找到 `chain_currency_config`。
 3. 根据 `toAddress` 找到 `chain_address`。
 4. 识别并排除可以匹配到平台业务单的内部资金移动。
 5. 使用 `(chain_code, chain_network, tx_id, event_index)` 幂等写入 `chain_deposit`，初始状态为 `CONFIRMING`。
-6. 同一请求中的事件全部处理完成后返回成功。
+6. 同一消息中的事件全部处理成功后提交 Kafka 消费位点。
 
-scanner 只有收到整批成功响应后才推进本地区块检查点。没有命中平台地址的空区块不需要调用链服务，可以直接推进本地检查点。
+scanner 只有收到 Kafka Broker ACK 后才推进本地区块检查点。发送失败时保留原检查点并重新扫描；发送成功但检查点更新失败时允许重复发送，由链服务幂等去重。没有命中平台地址的空区块不发送消息，可以直接推进本地检查点。
 
 固化确认不由 scanner 重复上报区块完成。`wallet-chain-server` 的 `DepositConfirmationJob` 主动查询 SolidityNode，核验成功后推进为 `CONFIRMED` 并通知出入金服务充值到账。
 
@@ -565,7 +570,7 @@ nb:
 ```text
 com.nb.tron.scanner
 ├── client
-│   ├── chainserver    链服务内部接口客户端
+│   ├── chainserver    币种和地址同步客户端
 │   └── tron           FullNode 与 SolidityNode 客户端
 ├── config             运行参数和自动配置
 ├── job
@@ -580,6 +585,7 @@ com.nb.tron.scanner
     ├── address        地址同步与内存索引
     ├── node           节点健康检查与选择
     ├── parser         TRX/TRC20 解析
+    ├── publisher      充值发现 Kafka 发送
     └── scan           Head 区块扫描编排
 ```
 
@@ -601,7 +607,7 @@ Job 只负责触发和记录执行结果，业务流程放在 Service。节点 S
 | 最近成功扫块时间 | 判断任务是否卡住 |
 | 每区块解析交易数和命中数 | 观察解析结果 |
 | 节点可用数量和响应耗时 | 判断节点质量 |
-| 链服务上报失败次数 | 判断调用链异常 |
+| Kafka 发送失败次数 | 判断充值事件投递异常 |
 
 日志必须包含网络、区块高度、区块 Hash、交易 ID 和 traceId。不得记录节点密钥、API Key 或未脱敏的第三方响应。
 
@@ -638,7 +644,7 @@ Job 只负责触发和记录执行结果，业务流程放在 Service。节点 S
 
 ### 阶段五：充值闭环
 
-1. 定义 Head 区块充值发现批量上报契约。
+1. 定义 Head 区块充值发现 Kafka 事件契约。
 2. 在链服务实现幂等创建 `CONFIRMING` 充值记录。
 3. 实现 Head 扫描编排、未固化窗口复查和游标推进。
 4. 在链服务实现固化高度查询、交易核验和确认任务。
