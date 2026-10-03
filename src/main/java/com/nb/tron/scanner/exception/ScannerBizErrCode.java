@@ -46,6 +46,12 @@ public enum ScannerBizErrCode implements IBizErrCode {
     CURRENCY_SYNC_REMOTE_CALL_FAILED(914002, "查询链服务币种配置失败"),
     CURRENCY_CONFIG_INVALID(914003, "币种配置不合法"),
     CURRENCY_CONFIG_DUPLICATE(914004, "币种配置存在重复资产"),
+
+    /// ////////////////////////////////////// TRON 交易解析 /////////////////////////////////////////
+    TRON_ADDRESS_INVALID(915001, "TRON 地址格式不合法"),
+
+    /// ////////////////////////////////////// Scanner 内部错误 /////////////////////////////////////////
+    CRYPTO_ALGORITHM_UNAVAILABLE(919001, "系统加密算法不可用"),
     ;
 
     private final Integer code;

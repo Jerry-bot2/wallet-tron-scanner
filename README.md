@@ -97,7 +97,10 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 - 启动时从链服务拉取当前网络的完整币种配置，首次加载失败则拒绝启动。
 - 按原生币和 TRC20 合约地址构建只读内存索引，供后续交易解析直接查询。
 - 新配置全部校验成功后原子替换快照，定时刷新失败时继续使用上一版配置。
-5.2 TRON 地址统一转换
+5.2 TRON 地址统一转换 完成
+- 节点 Hex 地址、TRC20 地址 Topic 统一转换为 Base58Check。
+- 严格校验地址长度、TRON 网络前缀、Topic 补位和 Base58Check 校验和。
+- 后续解析器只使用 Base58Check 地址匹配平台地址索引。
 5.3 TRX 转账解析器
 5.4 TRC20 Transfer 解析器
 5.5 统一区块解析入口
