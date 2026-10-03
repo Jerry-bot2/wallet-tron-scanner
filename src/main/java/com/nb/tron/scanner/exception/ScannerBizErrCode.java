@@ -40,6 +40,12 @@ public enum ScannerBizErrCode implements IBizErrCode {
     TRON_NODE_NETWORK_MISMATCH(913007, "TRON 节点网络不匹配"),
     TRON_BLOCK_NOT_FOUND(913008, "TRON 区块不存在或节点尚未同步"),
     TRON_NODE_UNAVAILABLE(913009, "没有可用的 TRON 节点"),
+
+    /// ////////////////////////////////////// 币种配置 /////////////////////////////////////////
+    CURRENCY_INDEX_NOT_READY(914001, "币种配置内存快照尚未就绪"),
+    CURRENCY_SYNC_REMOTE_CALL_FAILED(914002, "查询链服务币种配置失败"),
+    CURRENCY_CONFIG_INVALID(914003, "币种配置不合法"),
+    CURRENCY_CONFIG_DUPLICATE(914004, "币种配置存在重复资产"),
     ;
 
     private final Integer code;

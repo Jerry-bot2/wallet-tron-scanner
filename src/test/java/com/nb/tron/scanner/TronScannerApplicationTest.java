@@ -1,5 +1,6 @@
 package com.nb.tron.scanner;
 
+import com.nb.tron.scanner.biz.CurrencySyncService;
 import com.nb.tron.scanner.service.ITronMonitorAddressService;
 import com.nb.tron.scanner.node.TronNodeStartupValidator;
 import org.junit.jupiter.api.Test;
@@ -30,6 +31,9 @@ class TronScannerApplicationTest {
 
     @MockitoBean
     private TronNodeStartupValidator nodeStartupValidator;
+
+    @MockitoBean
+    private CurrencySyncService currencySyncService;
 
     @Test
     void contextLoads() {
