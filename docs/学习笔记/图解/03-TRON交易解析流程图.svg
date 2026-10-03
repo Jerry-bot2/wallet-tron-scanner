@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1420" viewBox="0 0 1440 1420">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0 0v6l9-3z" fill="#53627a"/>
+    </marker>
+    <style>
+      text{font-family:"PingFang SC","Microsoft YaHei",sans-serif;fill:#172033}
+      .title{font-size:34px;font-weight:700}.subtitle{font-size:18px;fill:#607089}
+      .heading{font-size:21px;font-weight:700}.body{font-size:16px}.small{font-size:14px;fill:#607089}
+      .mono{font-family:"SFMono-Regular","Menlo",monospace;font-size:15px}
+      .card{fill:#fff;stroke:#d9e2ef;stroke-width:2}.purple{fill:#f2ecff;stroke:#8f6bd4;stroke-width:2}
+      .blue{fill:#eaf2ff;stroke:#5b8def;stroke-width:2}.yellow{fill:#fff6df;stroke:#efb94d;stroke-width:2}
+      .green{fill:#eaf7ef;stroke:#50a66d;stroke-width:2}.red{fill:#ffedf0;stroke:#da6b7a;stroke-width:2}
+      .flow{stroke:#53627a;stroke-width:3;fill:none;marker-end:url(#arrow)}
+      .dash{stroke:#8491a6;stroke-width:2;stroke-dasharray:8 7;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+
+  <rect width="1440" height="1420" fill="#f4f7fc"/>
+  <text x="55" y="62" class="title">TRON 交易解析：从区块数据到充值事实</text>
+  <text x="55" y="96" class="subtitle">统一入口只负责解析和汇总；不写数据库、不上报链服务，也不推进扫描检查点。</text>
+
+  <text x="55" y="145" class="heading">输入：完整区块数据与两份只读内存快照</text>
+
+  <rect x="45" y="175" width="620" height="150" rx="17" class="blue"/>
+  <text x="72" y="214" class="heading">TronBlockData</text>
+  <text x="72" y="250" class="body">区块高度 · 区块 ID · 区块时间</text>
+  <text x="72" y="282" class="mono">List&lt;TronTransaction&gt;</text>
+  <text x="350" y="282" class="mono">Map&lt;txId, TronTransactionReceipt&gt;</text>
+  <text x="72" y="310" class="small">交易和回执来自同一个 FullNode，并且按 txId 一一对应</text>
+
+  <rect x="735" y="175" width="660" height="150" rx="17" class="purple"/>
+  <text x="762" y="214" class="heading">解析器只读依赖</text>
+  <text x="762" y="250" class="body">TronAddressIndex</text>
+  <text x="965" y="250" class="small">判断收款地址是否为平台 DEPOSIT 地址</text>
+  <text x="762" y="285" class="body">TronCurrencyIndex</text>
+  <text x="965" y="285" class="small">判断 TRX 与 TRC20 合约是否属于支持币种</text>
+  <text x="762" y="312" class="small">解析过程只查内存，不远程调用链服务</text>
+
+  <text x="55" y="380" class="heading">统一编排：逐笔匹配回执，再交给两个解析器尝试识别</text>
+
+  <rect x="250" y="410" width="940" height="135" rx="17" class="card"/>
+  <text x="280" y="450" class="heading">TronBlockParser</text>
+  <text x="280" y="486" class="body">① 按区块交易原始顺序遍历</text>
+  <text x="570" y="486" class="body">② requireReceipt(txId, blockHeight)</text>
+  <text x="280" y="520" class="body">③ 调用 TRX 与 TRC20 解析器</text>
+  <text x="570" y="520" class="body">④ 全部成功后返回完整结果</text>
+
+  <path d="M355 325V350H720V410" class="flow"/>
+  <path d="M1065 325V370H865V410" class="dash"/>
+
+  <rect x="45" y="625" width="620" height="275" rx="17" class="yellow"/>
+  <text x="72" y="666" class="heading">TrxTransferParser · 原生 TRX</text>
+  <text x="72" y="706" class="body">① contract[0].type = TransferContract</text>
+  <text x="72" y="740" class="body">② ret[0].contractRet = SUCCESS</text>
+  <text x="72" y="774" class="body">③ 解析 owner / to / amount（SUN）</text>
+  <text x="72" y="808" class="body">④ toAddress 用途必须是 DEPOSIT</text>
+  <rect x="72" y="838" width="565" height="42" rx="10" class="green"/>
+  <text x="94" y="865" class="body">生成 TRX 充值事实 · eventIndex = -1</text>
+
+  <rect x="775" y="625" width="620" height="275" rx="17" class="blue"/>
+  <text x="802" y="666" class="heading">Trc20TransferParser · USDT 等代币</text>
+  <text x="802" y="706" class="body">① 按原始顺序遍历 receipt.log</text>
+  <text x="802" y="740" class="body">② 支持的合约 + Topic0 = Transfer</text>
+  <text x="802" y="774" class="body">③ Topic1 / Topic2 / Data → from / to / amount</text>
+  <text x="802" y="808" class="body">④ toAddress 用途必须是 DEPOSIT</text>
+  <rect x="802" y="838" width="565" height="42" rx="10" class="green"/>
+  <text x="824" y="865" class="body">生成 0..N 条充值事实 · eventIndex = logIndex</text>
+
+  <path d="M720 545V585H355V625" class="flow"/>
+  <path d="M720 545V585H1085V625" class="flow"/>
+
+  <rect x="250" y="965" width="940" height="120" rx="17" class="green"/>
+  <text x="280" y="1005" class="heading">List&lt;TronDepositEvent&gt; · 完整充值事实列表</text>
+  <text x="280" y="1042" class="body">链与网络 · 币种与合约 · txId · eventIndex · 区块信息 · from · to · rawAmount</text>
+  <text x="280" y="1070" class="small">稳定幂等键：chainCode + chainNetwork + txId + eventIndex</text>
+  <path d="M355 900V930H600V965" class="flow"/>
+  <path d="M1085 900V930H840V965" class="flow"/>
+
+  <text x="55" y="1140" class="heading">过滤与失败边界</text>
+
+  <rect x="45" y="1170" width="650" height="120" rx="17" class="card"/>
+  <text x="72" y="1208" class="heading">正常忽略 · 返回空列表</text>
+  <text x="72" y="1243" class="body">失败交易 · 非 Transfer · 未配置合约 · 非平台地址 · 零金额</text>
+  <text x="72" y="1273" class="small">这些交易不会生成充值事实，也不属于解析异常</text>
+
+  <rect x="745" y="1170" width="650" height="120" rx="17" class="red"/>
+  <text x="772" y="1208" class="heading">目标数据异常 · 整块失败</text>
+  <text x="772" y="1243" class="body">缺少回执 · Topic 错误 · 地址错误 · 金额格式错误</text>
+  <text x="772" y="1273" class="small">不返回部分结果，不允许后续推进 HEAD_BLOCK 检查点</text>
+
+  <rect x="45" y="1330" width="1350" height="60" rx="17" class="purple"/>
+  <text x="72" y="1368" class="heading">样本验收：5 笔交易 → TRX 充值 1 条 + USDT 充值 1 条；失败、未知代币和外部地址共 3 条被过滤</text>
+</svg>

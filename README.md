@@ -82,7 +82,7 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 3.地址同步闭环：已完成
 4.TRON 节点能力 已完成（[图解](docs/学习笔记/02-TRON节点能力图解.md)）
 
-5.交易解析 已完成
+5.交易解析 已完成（[图解](docs/学习笔记/03-TRON交易解析图解.md)）
 
 5.0 交易解析边界与模型 完成
 - 冻结统一输入 `TronBlockData` 和输出 `TronDepositEvent`。
