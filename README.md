@@ -105,7 +105,10 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 - 只解析执行成功的 `TransferContract`，失败交易和其他合约直接忽略。
 - 将付款、收款地址转换为 Base58Check，仅对平台充值地址生成充值事实。
 - TRX `eventIndex` 固定为 `-1`，与 TRC20 的非负日志序号隔离；原始金额使用 `BigInteger`。
-5.4 TRC20 Transfer 解析器
+5.4 TRC20 Transfer 解析器 完成
+- 遍历交易回执日志，只识别已配置 TRC20 合约的标准 `Transfer(address,address,uint256)` 事件。
+- 从 Topic1、Topic2 和 Data 读取付款地址、收款地址与原始金额，仅对平台充值地址生成充值事实。
+- 使用回执中的原始日志下标作为 `eventIndex`，支持同一交易包含多条 Transfer 日志。
 5.5 统一区块解析入口
 5.6 交易解析样本测试与验收
 

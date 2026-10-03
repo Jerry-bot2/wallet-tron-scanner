@@ -136,7 +136,10 @@ public class TrxTransferParser {
     }
 
     private boolean isSuccessful(JsonNode resultNodes) {
-        if (!resultNodes.isArray() || resultNodes.size() != 1) {
+        if (!resultNodes.isArray()) {
+            throw invalidTransaction();
+        }
+        if (resultNodes.size() != 1) {
             throw invalidTransaction();
         }
         String contractResult = resultNodes.get(0).path("contractRet").textValue();
