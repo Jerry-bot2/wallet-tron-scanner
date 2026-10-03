@@ -80,7 +80,7 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 1.持久化基础：已完成
 2.链服务同步契约：已完成
 3.地址同步闭环：已完成
-4.TRON 节点能力 已完成
+4.TRON 节点能力 已完成（[图解](docs/学习笔记/02-TRON节点能力图解.md)）
 
 5.交易解析 进行中
 

@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1220" viewBox="0 0 1440 1220">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0 0v6l9-3z" fill="#53627a"/>
+    </marker>
+    <style>
+      text{font-family:"PingFang SC","Microsoft YaHei",sans-serif;fill:#172033}
+      .title{font-size:34px;font-weight:700}.subtitle{font-size:18px;fill:#607089}
+      .heading{font-size:21px;font-weight:700}.body{font-size:16px}.small{font-size:14px;fill:#607089}
+      .card{fill:#fff;stroke:#d9e2ef;stroke-width:2}.purple{fill:#f2ecff;stroke:#8f6bd4;stroke-width:2}
+      .blue{fill:#eaf2ff;stroke:#5b8def;stroke-width:2}.yellow{fill:#fff6df;stroke:#efb94d;stroke-width:2}
+      .green{fill:#eaf7ef;stroke:#50a66d;stroke-width:2}.red{fill:#ffedf0;stroke:#da6b7a;stroke-width:2}
+      .flow{stroke:#53627a;stroke-width:3;fill:none;marker-end:url(#arrow)}
+      .dash{stroke:#8491a6;stroke-width:2;stroke-dasharray:8 7;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+
+  <rect width="1440" height="1220" fill="#f4f7fc"/>
+  <text x="55" y="62" class="title">TRON 节点能力：统一读取、主备切换与高度边界</text>
+  <text x="55" y="96" class="subtitle">业务代码只依赖 TronNodeManager，不感知节点 URL、API Key 和主备关系。</text>
+
+  <text x="55" y="145" class="heading">统一读取链路</text>
+
+  <rect x="45" y="175" width="250" height="220" rx="17" class="purple"/>
+  <text x="70" y="214" class="heading">Scanner 扫块业务</text>
+  <text x="70" y="252" class="body">getHeadHeight()</text>
+  <text x="70" y="286" class="body">getSolidHeight()</text>
+  <text x="70" y="320" class="body">getBlockDataByHeight()</text>
+  <text x="70" y="360" class="small">不传 nodeCode，不选择主备</text>
+
+  <rect x="365" y="175" width="315" height="220" rx="17" class="blue"/>
+  <text x="390" y="214" class="heading">TronNodeManager</text>
+  <text x="390" y="252" class="body">① 筛选健康节点</text>
+  <text x="390" y="286" class="body">② 检查目标高度</text>
+  <text x="390" y="320" class="body">③ 保持当前节点或切换</text>
+  <text x="390" y="354" class="body">④ 失败只重试一个备用节点</text>
+  <text x="390" y="381" class="small">节点选择与读取策略唯一入口</text>
+
+  <rect x="750" y="175" width="270" height="220" rx="17" class="yellow"/>
+  <text x="775" y="214" class="heading">TronNodeClient</text>
+  <text x="775" y="252" class="body">发送一次 HTTP 请求</text>
+  <text x="775" y="286" class="body">解析区块和交易回执</text>
+  <text x="775" y="320" class="body">校验高度和响应结构</text>
+  <text x="775" y="360" class="small">不选节点，不做内部重试</text>
+
+  <rect x="1090" y="155" width="305" height="90" rx="15" class="green"/>
+  <text x="1115" y="192" class="heading">FullNode A · priority 1</text>
+  <text x="1115" y="224" class="small">Head、区块、交易和回执</text>
+
+  <rect x="1090" y="265" width="305" height="90" rx="15" class="green"/>
+  <text x="1115" y="302" class="heading">FullNode B · priority 2</text>
+  <text x="1115" y="334" class="small">A 不可用时接管读取</text>
+
+  <rect x="1090" y="375" width="305" height="90" rx="15" class="purple"/>
+  <text x="1115" y="412" class="heading">SolidityNode</text>
+  <text x="1115" y="444" class="small">只提供最新固化视图</text>
+
+  <path d="M295 285H365" class="flow"/>
+  <path d="M680 285H750" class="flow"/>
+  <path d="M1020 240L1090 200" class="flow"/>
+  <path d="M1020 285H1090" class="flow"/>
+  <path d="M1020 330L1090 420" class="flow"/>
+
+  <rect x="365" y="430" width="655" height="105" rx="17" class="card"/>
+  <text x="390" y="468" class="heading">TronNodeHealthService · 每 15 秒刷新</text>
+  <text x="390" y="502" class="body">健康状态 · 最新高度 · 连续失败次数 · 连续健康时间</text>
+  <text x="390" y="527" class="small">状态只保存在当前进程内存，不是 Scanner 扫描进度</text>
+  <path d="M1020 468L1090 225" class="dash"/>
+  <path d="M1020 480L1090 310" class="dash"/>
+  <path d="M1020 494L1090 420" class="dash"/>
+  <path d="M525 430V395" class="dash"/>
+
+  <text x="55" y="600" class="heading">主备切换时间线：A 失败后稳定使用 B，A 恢复后再切回</text>
+
+  <rect x="45" y="630" width="300" height="155" rx="17" class="green"/>
+  <text x="70" y="669" class="heading">① 正常使用 A</text>
+  <text x="70" y="705" class="body">candidates = [A, B]</text>
+  <text x="70" y="739" class="body">active = A · preferred = A</text>
+  <text x="70" y="766" class="small">保持当前节点，不随机切换</text>
+
+  <rect x="395" y="630" width="300" height="155" rx="17" class="red"/>
+  <text x="420" y="669" class="heading">② A 当前请求失败</text>
+  <text x="420" y="705" class="body">A 进入恢复冷却期</text>
+  <text x="420" y="739" class="body">切换 B 并重试一次</text>
+  <text x="420" y="766" class="small">本次不会继续尝试第三个节点</text>
+
+  <rect x="745" y="630" width="300" height="155" rx="17" class="yellow"/>
+  <text x="770" y="669" class="heading">③ 冷却期间使用 B</text>
+  <text x="770" y="705" class="body">candidates = [B]</text>
+  <text x="770" y="739" class="body">active = B · preferred = B</text>
+  <text x="770" y="766" class="small">防止 A、B 反复抖动</text>
+
+  <rect x="1095" y="630" width="300" height="155" rx="17" class="blue"/>
+  <text x="1120" y="669" class="heading">④ A 稳定恢复</text>
+  <text x="1120" y="705" class="body">candidates = [A, B]</text>
+  <text x="1120" y="739" class="body">active = B · preferred = A</text>
+  <text x="1120" y="766" class="small">观察期结束后切回 A</text>
+
+  <path d="M345 707H395" class="flow"/>
+  <path d="M695 707H745" class="flow"/>
+  <path d="M1045 707H1095" class="flow"/>
+
+  <text x="55" y="850" class="heading">四种高度：节点能提供到哪里，与 Scanner 已处理到哪里是两件事</text>
+
+  <rect x="45" y="880" width="310" height="150" rx="17" class="green"/>
+  <text x="70" y="919" class="heading">FullNode A 高度</text>
+  <text x="70" y="957" class="body">例如 1,010</text>
+  <text x="70" y="990" class="small">A 当前可读取到的 Head</text>
+  <text x="70" y="1015" class="small">来自健康检查，保存在内存</text>
+
+  <rect x="390" y="880" width="310" height="150" rx="17" class="green"/>
+  <text x="415" y="919" class="heading">FullNode B 高度</text>
+  <text x="415" y="957" class="body">例如 1,008</text>
+  <text x="415" y="990" class="small">读取 1,009 时暂时不能接管</text>
+  <text x="415" y="1015" class="small">追上后可以重新参与选择</text>
+
+  <rect x="735" y="880" width="310" height="150" rx="17" class="purple"/>
+  <text x="760" y="919" class="heading">SolidityNode 高度</text>
+  <text x="760" y="957" class="body">例如 990</text>
+  <text x="760" y="990" class="small">网络当前固化到的高度</text>
+  <text x="760" y="1015" class="small">不是第二个 Scanner 游标</text>
+
+  <rect x="1080" y="880" width="315" height="150" rx="17" class="yellow"/>
+  <text x="1105" y="919" class="heading">HEAD_BLOCK 检查点</text>
+  <text x="1105" y="957" class="body">例如 1,000</text>
+  <text x="1105" y="990" class="small">Scanner 已完整处理到的位置</text>
+  <text x="1105" y="1015" class="small">保存在 MySQL，主备节点共用</text>
+
+  <rect x="45" y="1080" width="1350" height="95" rx="17" class="red"/>
+  <text x="72" y="1118" class="heading">失败关闭规则</text>
+  <text x="250" y="1118" class="body">当前节点失败 → 切换一个备用节点 → 仍失败则结束本轮 → 不返回伪造数据 → 不推进 HEAD_BLOCK</text>
+  <text x="72" y="1152" class="small">区块和交易回执必须来自同一个 FullNode；切换节点时整组请求重新读取，禁止混用未固化数据。</text>
+</svg>
