@@ -5,6 +5,7 @@ import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.openfeign.EnableFeignClients;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * TRON 扫描器启动入口。
@@ -13,6 +14,7 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
  * Date: 02.10.26
  */
 @EnableFeignClients(basePackageClasses = ChainScannerClient.class)
+@EnableScheduling
 @MapperScan("com.nb.tron.scanner.mapper")
 @SpringBootApplication
 public class TronScannerApplication {

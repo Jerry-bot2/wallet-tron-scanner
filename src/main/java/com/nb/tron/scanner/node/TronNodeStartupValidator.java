@@ -1,12 +1,10 @@
 package com.nb.tron.scanner.node;
 
 import com.nb.core.exception.BizException;
-import com.nb.tron.scanner.client.tron.TronNodeClient;
-import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.enums.TronNodeRole;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
-import com.nb.tron.scanner.model.TronNodeHeight;
+import com.nb.tron.scanner.model.TronNodeRuntimeState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -16,8 +14,6 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-
-import static com.nb.tron.scanner.constant.TronConstants.GENESIS_BLOCK_HEIGHT;
 
 /**
  * TRON 节点启动校验器
@@ -35,7 +31,7 @@ public class TronNodeStartupValidator implements ApplicationRunner {
 
     private final TronScannerProperties scannerProperties;
 
-    private final TronNodeClient nodeClient;
+    private final TronNodeHealthService nodeHealthService;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -55,11 +51,9 @@ public class TronNodeStartupValidator implements ApplicationRunner {
      * </p>
      */
     public void validateConfiguredNodes() {
-        List<TronNodeEndpointProperties> availableNodes = scannerProperties.getNode().getNodes().stream()
-            .filter(this::isNodeAvailable)
-            .toList();
-        long fullNodeCount = countByRole(availableNodes, TronNodeRole.FULL_NODE);
-        long solidityNodeCount = countByRole(availableNodes, TronNodeRole.SOLIDITY_NODE);
+        List<TronNodeRuntimeState> nodeStates = nodeHealthService.refreshNodeStates();
+        long fullNodeCount = countHealthyNodes(nodeStates, TronNodeRole.FULL_NODE);
+        long solidityNodeCount = countHealthyNodes(nodeStates, TronNodeRole.SOLIDITY_NODE);
 
         validateStartupReadiness(fullNodeCount, solidityNodeCount);
 
@@ -68,27 +62,10 @@ public class TronNodeStartupValidator implements ApplicationRunner {
             solidityNodeCount);
     }
 
-    private boolean isNodeAvailable(TronNodeEndpointProperties endpoint) {
-        try {
-            validateNetwork(endpoint);
-            TronNodeHeight nodeHeight = queryLatestHeight(endpoint);
-            log.info("TRON节点启动校验通过，nodeCode={}，role={}，blockHeight={}",
-                endpoint.getCode(),
-                endpoint.getRole(),
-                nodeHeight.blockHeight());
-            return true;
-        } catch (BizException exception) {
-            log.warn("TRON节点启动校验失败，nodeCode={}，role={}，errorCode={}",
-                endpoint.getCode(),
-                endpoint.getRole(),
-                exception.getCode());
-            return false;
-        }
-    }
-
-    private long countByRole(List<TronNodeEndpointProperties> availableNodes, TronNodeRole role) {
-        return availableNodes.stream()
-            .filter(endpoint -> endpoint.getRole() == role)
+    private long countHealthyNodes(List<TronNodeRuntimeState> nodeStates, TronNodeRole role) {
+        return nodeStates.stream()
+            .filter(TronNodeRuntimeState::isHealthy)
+            .filter(state -> state.nodeRole() == role)
             .count();
     }
 
@@ -101,17 +78,4 @@ public class TronNodeStartupValidator implements ApplicationRunner {
         }
     }
 
-    private void validateNetwork(TronNodeEndpointProperties endpoint) {
-        TronNodeHeight genesisBlock = nodeClient.getBlockHeaderByHeight(endpoint, GENESIS_BLOCK_HEIGHT);
-        if (!scannerProperties.getExpectedGenesisBlockId().equalsIgnoreCase(genesisBlock.blockId())) {
-            throw BizException.of(ScannerBizErrCode.TRON_NODE_NETWORK_MISMATCH);
-        }
-    }
-
-    private TronNodeHeight queryLatestHeight(TronNodeEndpointProperties endpoint) {
-        if (endpoint.getRole() == TronNodeRole.FULL_NODE) {
-            return nodeClient.getHeadHeight(endpoint);
-        }
-        return nodeClient.getSolidHeight(endpoint);
-    }
 }

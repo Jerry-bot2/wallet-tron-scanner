@@ -131,7 +131,7 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 - 没有可用 SolidityNode 时明确记录固化能力不可用。
 - SolidityNode 暂时不可用不阻断 Head 发现；后续扫块编排改用固定 `recheckWindow`。
 
-4.4 节点运行状态
+4.4 节点运行状态 完成
 - 在内存中记录节点健康状态，不写数据库。
 - 记录最新高度、连续失败次数、最近响应耗时和最近成功时间。
 - 新增 TronNodeHealthService，由每个 Scanner 实例本地定时刷新节点状态。
