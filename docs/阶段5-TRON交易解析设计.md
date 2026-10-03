@@ -124,7 +124,35 @@ TronBlockParser        编排整块解析并汇总充值事实
 
 解析器保持无状态，配置和地址数据都通过只读快照查询。`TronBlockParser` 返回完整结果后，后续扫描编排才允许上报和推进检查点。
 
-## 10. 本阶段不负责
+## 10. 样本测试与验收
+
+使用以下固定节点响应样本完成阶段 5 验收：
+
+- `samples/tron/block-100.json`：包含五笔不同类型的交易。
+- `samples/tron/transaction-info-100.json`：包含与交易一一对应的执行回执和日志。
+
+验收链路：
+
+```text
+FullNode 区块与回执样本
+→ TronNodeClient
+→ TronBlockData
+→ TronBlockParser
+→ TRX / TRC20 充值事实
+```
+
+验收结果：
+
+| 样本 | 预期结果 |
+|---|---|
+| 成功的 TRX 转账到平台地址 | 生成 TRX 充值事实 |
+| 成功的 USDT Transfer 到平台地址 | 生成 USDT 充值事实 |
+| 执行失败的交易 | 忽略 |
+| 未配置的 TRC20 合约 | 忽略 |
+| 转账到非平台地址 | 忽略 |
+| 同一区块重复解析 | 两次结果完全一致 |
+
+## 11. 本阶段不负责
 
 - 不调用充值发现上报接口。
 - 不写本地充值表或 Outbox。

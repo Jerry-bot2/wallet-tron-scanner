@@ -1,0 +1,94 @@
+{
+  "blockID": "block-100",
+  "block_header": {
+    "raw_data": {
+      "number": 100,
+      "parentHash": "block-99",
+      "timestamp": 1791043200000
+    }
+  },
+  "transactions": [
+    {
+      "txID": "tx-trx-deposit",
+      "raw_data": {
+        "contract": [
+          {
+            "type": "TransferContract",
+            "parameter": {
+              "value": {
+                "owner_address": "413333333333333333333333333333333333333333",
+                "to_address": "411111111111111111111111111111111111111111",
+                "amount": 2000000
+              }
+            }
+          }
+        ]
+      },
+      "ret": [
+        {
+          "contractRet": "SUCCESS"
+        }
+      ]
+    },
+    {
+      "txID": "tx-usdt-deposit",
+      "raw_data": {
+        "contract": [
+          {
+            "type": "TriggerSmartContract"
+          }
+        ]
+      },
+      "ret": [
+        {
+          "contractRet": "SUCCESS"
+        }
+      ]
+    },
+    {
+      "txID": "tx-failed",
+      "raw_data": {
+        "contract": [
+          {
+            "type": "TriggerSmartContract"
+          }
+        ]
+      },
+      "ret": [
+        {
+          "contractRet": "REVERT"
+        }
+      ]
+    },
+    {
+      "txID": "tx-unknown-token",
+      "raw_data": {
+        "contract": [
+          {
+            "type": "TriggerSmartContract"
+          }
+        ]
+      },
+      "ret": [
+        {
+          "contractRet": "SUCCESS"
+        }
+      ]
+    },
+    {
+      "txID": "tx-external-address",
+      "raw_data": {
+        "contract": [
+          {
+            "type": "TriggerSmartContract"
+          }
+        ]
+      },
+      "ret": [
+        {
+          "contractRet": "SUCCESS"
+        }
+      ]
+    }
+  ]
+}
