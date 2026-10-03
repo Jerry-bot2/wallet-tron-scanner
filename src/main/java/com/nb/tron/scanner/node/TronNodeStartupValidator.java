@@ -1,0 +1,117 @@
+package com.nb.tron.scanner.node;
+
+import com.nb.core.exception.BizException;
+import com.nb.tron.scanner.client.tron.TronNodeClient;
+import com.nb.tron.scanner.config.TronNodeEndpointProperties;
+import com.nb.tron.scanner.config.TronScannerProperties;
+import com.nb.tron.scanner.enums.TronNodeRole;
+import com.nb.tron.scanner.exception.ScannerBizErrCode;
+import com.nb.tron.scanner.model.TronNodeHeight;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+
+import static com.nb.tron.scanner.constant.TronConstants.GENESIS_BLOCK_HEIGHT;
+
+/**
+ * TRON 节点启动校验器
+ *
+ * <p>应用启动时逐个检查节点网络和读取能力，避免 Scanner 使用错误网络或不可用节点。</p>
+ * <p>
+ * Author: bin jack
+ * Date: 03.10.26
+ */
+@Slf4j
+@Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
+@RequiredArgsConstructor
+public class TronNodeStartupValidator implements ApplicationRunner {
+
+    private final TronScannerProperties scannerProperties;
+
+    private final TronNodeClient nodeClient;
+
+    @Override
+    public void run(ApplicationArguments args) {
+        validateConfiguredNodes();
+    }
+
+    /**
+     * 校验当前环境配置的全部 TRON 节点。
+     *
+     * <p>
+     * 1.网络检查：读取节点的创世区块，将区块 ID 与当前环境配置进行比较，
+     * 防止生产环境连接到测试网络；
+     * 2.可用性检查：FullNode 查询最新 Head 高度，SolidityNode 查询最新固化高度，
+     * 确认节点能够正常返回合法区块信息；
+     * 3.启动判定：至少一个 FullNode 可用才允许 Scanner 启动。SolidityNode 暂时
+     * 不可用时允许启动，后续扫块使用固定窗口重复扫描未固化区块。
+     * </p>
+     */
+    public void validateConfiguredNodes() {
+        List<TronNodeEndpointProperties> availableNodes = scannerProperties.getNode().getNodes().stream()
+            .filter(this::isNodeAvailable)
+            .toList();
+        long fullNodeCount = countByRole(availableNodes, TronNodeRole.FULL_NODE);
+        long solidityNodeCount = countByRole(availableNodes, TronNodeRole.SOLIDITY_NODE);
+
+        validateStartupReadiness(fullNodeCount, solidityNodeCount);
+
+        log.info("TRON节点启动校验完成，availableFullNodes={}，availableSolidityNodes={}",
+            fullNodeCount,
+            solidityNodeCount);
+    }
+
+    private boolean isNodeAvailable(TronNodeEndpointProperties endpoint) {
+        try {
+            validateNetwork(endpoint);
+            TronNodeHeight nodeHeight = queryLatestHeight(endpoint);
+            log.info("TRON节点启动校验通过，nodeCode={}，role={}，blockHeight={}",
+                endpoint.getCode(),
+                endpoint.getRole(),
+                nodeHeight.blockHeight());
+            return true;
+        } catch (BizException exception) {
+            log.warn("TRON节点启动校验失败，nodeCode={}，role={}，errorCode={}",
+                endpoint.getCode(),
+                endpoint.getRole(),
+                exception.getCode());
+            return false;
+        }
+    }
+
+    private long countByRole(List<TronNodeEndpointProperties> availableNodes, TronNodeRole role) {
+        return availableNodes.stream()
+            .filter(endpoint -> endpoint.getRole() == role)
+            .count();
+    }
+
+    private void validateStartupReadiness(long fullNodeCount, long solidityNodeCount) {
+        if (fullNodeCount == 0) {
+            throw BizException.of(ScannerBizErrCode.TRON_NODE_UNAVAILABLE);
+        }
+        if (solidityNodeCount == 0) {
+            log.warn("TRON SolidityNode启动校验未通过，将按固定窗口重扫Head区块，recheckWindow={}", scannerProperties.getRecheckWindow());
+        }
+    }
+
+    private void validateNetwork(TronNodeEndpointProperties endpoint) {
+        TronNodeHeight genesisBlock = nodeClient.getBlockHeaderByHeight(endpoint, GENESIS_BLOCK_HEIGHT);
+        if (!scannerProperties.getExpectedGenesisBlockId().equalsIgnoreCase(genesisBlock.blockId())) {
+            throw BizException.of(ScannerBizErrCode.TRON_NODE_NETWORK_MISMATCH);
+        }
+    }
+
+    private TronNodeHeight queryLatestHeight(TronNodeEndpointProperties endpoint) {
+        if (endpoint.getRole() == TronNodeRole.FULL_NODE) {
+            return nodeClient.getHeadHeight(endpoint);
+        }
+        return nodeClient.getSolidHeight(endpoint);
+    }
+}

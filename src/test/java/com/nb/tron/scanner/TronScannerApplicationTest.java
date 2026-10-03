@@ -1,6 +1,7 @@
 package com.nb.tron.scanner;
 
 import com.nb.tron.scanner.service.ITronMonitorAddressService;
+import com.nb.tron.scanner.node.TronNodeStartupValidator;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -26,6 +27,9 @@ class TronScannerApplicationTest {
 
     @MockitoBean
     private ITronMonitorAddressService monitorAddressService;
+
+    @MockitoBean
+    private TronNodeStartupValidator nodeStartupValidator;
 
     @Test
     void contextLoads() {

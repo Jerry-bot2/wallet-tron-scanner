@@ -1,7 +1,7 @@
 package com.nb.tron.scanner.constant;
 
 /**
- * TRON HTTP 协议常量。
+ * TRON HTTP 协议常量
  * <p>
  * Author: bin jack
  * Date: 03.10.26

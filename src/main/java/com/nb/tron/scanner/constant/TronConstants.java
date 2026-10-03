@@ -13,6 +13,11 @@ public final class TronConstants {
      */
     public static final String CHAIN_CODE = "TRON";
 
+    /**
+     * TRON 创世区块高度。
+     */
+    public static final long GENESIS_BLOCK_HEIGHT = 0L;
+
     private TronConstants() {
     }
 }
