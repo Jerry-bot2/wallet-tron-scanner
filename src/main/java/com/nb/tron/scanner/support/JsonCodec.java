@@ -35,4 +35,18 @@ public class JsonCodec {
             throw new UncheckedIOException(exception);
         }
     }
+
+    /**
+     * 将 JSON 字符串转换为树形结构。
+     *
+     * @param json JSON 字符串
+     * @return JSON 树
+     */
+    public JsonNode readTree(String json) {
+        try {
+            return objectMapper.readTree(json);
+        } catch (IOException exception) {
+            throw new UncheckedIOException(exception);
+        }
+    }
 }

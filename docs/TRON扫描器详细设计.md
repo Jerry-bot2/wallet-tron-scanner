@@ -385,11 +385,13 @@ chain-server 确认任务也按 ID 分页处理 `CONFIRMING` 记录，避免单�
 
 处理 `TransferContract`，读取付款地址、收款地址和 SUN 整数金额。只有收款地址存在于内存监控集合时才生成链上事件。
 
-原生 TRX 使用负数事件序号：
+原生 TRX 固定使用负数事件序号：
 
 ```text
-eventIndex = -(contractIndex + 1)
+eventIndex = -1
 ```
+
+当前 TRON 协议只支持一笔交易包含一个 Contract；字段定义为列表是为协议后续扩展。Scanner 遇到多个 Contract 时拒绝解析。
 
 ### 8.2 TRC20
 

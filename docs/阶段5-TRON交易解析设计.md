@@ -51,7 +51,7 @@ chainCode + chainNetwork + txId + eventIndex
 
 `eventIndex` 规则：
 
-- TRX：使用 `-(contractIndex + 1)`，因此始终小于 0。
+- TRX：当前 TRON 协议只支持一笔交易包含一个 Contract，固定使用 `-1`。
 - TRC20：使用交易回执中的日志序号，从 0 开始。
 
 TRX 与 TRC20 的序号空间不会冲突，同一交易内多个 Transfer 日志也能稳定区分。区块高度和区块 Hash 是链事实，不参与唯一键；未固化阶段发生分叉时，由链服务根据重复上报更新或核验链事实。
@@ -69,12 +69,12 @@ TRX 与 TRC20 的序号空间不会冲突，同一交易内多个 Transfer 日�
 只处理 `TransferContract`：
 
 1. 交易执行成功。
-2. 读取合约序号、付款地址、收款地址和 SUN 整数金额。
+2. 读取付款地址、收款地址和 SUN 整数金额。
 3. 收款地址存在于平台地址索引，且地址用途为客户充值。
 4. 当前币种配置允许识别原生 TRX。
 5. 生成一条 `TronDepositEvent`。
 
-一笔交易可以包含多个 Contract，每个 Contract 独立解析，并使用自己的负数 `eventIndex`。
+TRON 协议当前只支持一笔交易包含一个 Contract；字段定义为列表是为协议后续扩展。Scanner 遇到多个 Contract 时拒绝解析，避免错误推断执行结果与 Contract 的对应关系。
 
 ## 6. TRC20 解析边界
 
