@@ -2,10 +2,13 @@ package com.nb.tron.scanner.node;
 
 import com.nb.core.exception.BizAssert;
 import com.nb.core.exception.BizException;
+import com.nb.tron.scanner.client.tron.TronNodeClient;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.enums.TronNodeRole;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
+import com.nb.tron.scanner.model.TronBlockData;
+import com.nb.tron.scanner.model.TronNodeHeight;
 import com.nb.tron.scanner.model.TronNodeRuntimeState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +55,8 @@ public class TronNodeManager {
 
     private final TronNodeHealthService nodeHealthService;
 
+    private final TronNodeClient nodeClient;
+
     /**
      * FullNode 和 SolidityNode 当前正在使用的节点编码。
      */
@@ -62,6 +67,40 @@ public class TronNodeManager {
      * 例如 A 请求失败后切到 B，接下来 60 秒继续使用 B，之后才允许再次选择 A。
      */
     private final ConcurrentMap<String, Instant> recoveryBlockedUntil = new ConcurrentHashMap<>();
+
+    /**
+     * 查询最新 Head 高度，业务代码不需要关心本次使用哪个 FullNode。
+     */
+    public TronNodeHeight getHeadHeight() {
+        TronNodeEndpointProperties selectedNode = selectFullNodeForHead();
+        return executeReadWithFailover(
+            selectedNode,
+            nodeClient::getHeadHeight,
+            this::switchFullNodeForHead);
+    }
+
+    /**
+     * 查询最新固化高度，业务代码不需要关心本次使用哪个 SolidityNode。
+     */
+    public TronNodeHeight getSolidHeight() {
+        TronNodeEndpointProperties selectedNode = selectSolidityNode();
+        return executeReadWithFailover(
+            selectedNode,
+            nodeClient::getSolidHeight,
+            this::switchSolidityNode);
+    }
+
+    /**
+     * 按高度读取完整区块和交易回执。
+     * 区块与回执始终在同一个 FullNode 上完成读取，节点失败时整体切换一次。
+     */
+    public TronBlockData getBlockDataByHeight(long blockHeight) {
+        TronNodeEndpointProperties selectedNode = selectFullNodeForBlock(blockHeight);
+        return executeReadWithFailover(
+            selectedNode,
+            endpoint -> nodeClient.getBlockDataByHeight(endpoint, blockHeight),
+            failedNodeCode -> switchFullNodeForBlock(failedNodeCode, blockHeight));
+    }
 
     /**
      * 为查询最新 Head 高度选择一个健康且没有明显落后的 FullNode。
@@ -76,7 +115,7 @@ public class TronNodeManager {
      */
     TronNodeEndpointProperties selectFullNodeForBlock(long requiredBlockHeight) {
         BizAssert.isTrue(requiredBlockHeight >= 0, ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
-        return selectNode(TronNodeRole.FULL_NODE, requiredBlockHeight);
+        return selectNode(TronNodeRole.FULL_NODE, requiredBlockHeight, null);
     }
 
     /**
@@ -114,12 +153,44 @@ public class TronNodeManager {
         return selectNode(TronNodeRole.SOLIDITY_NODE, null, failedNodeCode);
     }
 
-    private TronNodeEndpointProperties selectNode(TronNodeRole nodeRole) {
-        return selectNode(nodeRole, null, null);
+    /**
+     * 使用选中的节点读取数据，节点故障时只切换一个备用节点重试一次。
+     *
+     * <ol>
+     *     <li>先使用当前选中的节点读取数据；</li>
+     *     <li>当前节点发生可切换异常时，将它放入冷却期并选择备用节点；</li>
+     *     <li>使用备用节点重新读取一次；</li>
+     *     <li>备用节点仍然失败时结束调用，由下一轮扫描任务再次处理。</li>
+     * </ol>
+     */
+    private <T> T executeReadWithFailover(
+        TronNodeEndpointProperties selectedNode,
+        Function<TronNodeEndpointProperties, T> readOperation,
+        Function<String, TronNodeEndpointProperties> fallbackSelector) {
+        try {
+            return readOperation.apply(selectedNode);
+        } catch (BizException exception) {
+            TronNodeEndpointProperties fallbackNode = fallbackSelector.apply(selectedNode.getCode());
+            log.warn("TRON节点读取失败，切换备用节点重试，failedNodeCode={}，fallbackNodeCode={}，errorCode={}",
+                selectedNode.getCode(),
+                fallbackNode.getCode(),
+                exception.getCode());
+            return readFromFallbackNode(fallbackNode, readOperation);
+        }
     }
 
-    private TronNodeEndpointProperties selectNode(TronNodeRole nodeRole, long requiredBlockHeight) {
-        return selectNode(nodeRole, requiredBlockHeight, null);
+    private <T> T readFromFallbackNode(TronNodeEndpointProperties fallbackNode,
+                                       Function<TronNodeEndpointProperties, T> readOperation) {
+        try {
+            return readOperation.apply(fallbackNode);
+        } catch (BizException exception) {
+            startRecoveryCooldown(fallbackNode.getCode());
+            throw exception;
+        }
+    }
+
+    private TronNodeEndpointProperties selectNode(TronNodeRole nodeRole) {
+        return selectNode(nodeRole, null, null);
     }
 
     /**

@@ -149,7 +149,7 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 - 所有 FullNode 都不可用时明确失败，不返回伪造高度或空区块。
 - 按高度读取区块时，只选择已同步到该高度的节点。
 
-4.6 统一节点读取入口
+4.6 统一节点读取入口 完成
 - 对后续业务只提供统一的 TronNodeManager。
 - 业务层不直接指定主节点或备用节点。
 - 提供查询最新 Head 高度的方法。
