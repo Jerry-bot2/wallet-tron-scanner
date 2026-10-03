@@ -24,6 +24,7 @@ public enum ScannerBizErrCode implements IBizErrCode {
     ADDRESS_SYNC_DATA_CONFLICT(912003, "地址同步数据与本地记录不一致"),
     ADDRESS_SYNC_SAVE_FAILED(912004, "地址同步数据保存失败"),
     ADDRESS_SYNC_ACK_FAILED(912005, "确认链服务地址监控水位失败"),
+    TRON_NODE_CONFIG_INVALID(913001, "TRON 节点配置不合法"),
     ;
 
     private final Integer code;

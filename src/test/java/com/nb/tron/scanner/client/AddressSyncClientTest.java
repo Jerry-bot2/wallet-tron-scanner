@@ -4,6 +4,7 @@ import com.nb.chain.client.api.ChainScannerClient;
 import com.nb.chain.client.enums.AddressPurpose;
 import com.nb.chain.client.req.ScannerAddressAckReq;
 import com.nb.chain.client.resp.ScannerAddressPageResp;
+import com.nb.tron.scanner.constant.TronConstants;
 import com.nb.chain.client.resp.ScannerAddressResp;
 import com.nb.core.exception.BizException;
 import com.nb.core.response.Result;
@@ -76,7 +77,7 @@ class AddressSyncClientTest {
 
         ArgumentCaptor<ScannerAddressAckReq> requestCaptor = ArgumentCaptor.forClass(ScannerAddressAckReq.class);
         verify(chainScannerClient).ackAddressWatermark(requestCaptor.capture());
-        assertThat(requestCaptor.getValue().getChainCode()).isEqualTo("TRON");
+        assertThat(requestCaptor.getValue().getChainCode()).isEqualTo(TronConstants.CHAIN_CODE);
         assertThat(requestCaptor.getValue().getAppliedMaxAddressId()).isEqualTo(15L);
     }
 

@@ -59,7 +59,8 @@ flowchart LR
 
     NODE1[FullNode 主节点] --> NP[节点管理器]
     NODE2[FullNode 备用节点] --> NP
-    SOLID[SolidityNode] -->|固化高度与交易回执| CS
+    SOLID[SolidityNode] -->|固化高度| NP
+    SOLID -->|固化核验| CS
     NP --> SCAN[Head 区块扫描服务]
     SNAPSHOT --> SCAN
     SCAN --> PARSER[TRX / TRC20 解析器]
@@ -84,6 +85,7 @@ flowchart LR
 - 维护可并发查询的内存地址索引。
 - 管理 TRON 节点连接和节点切换。
 - 顺序扫描 Head 区块并记录扫描高度。
+- 读取最新固化高度，只用于确定未固化区块的重扫范围。
 - 解析 TRX 和 TRC20 Transfer 事件。
 - 仅上报与平台地址有关的链上事实。
 - 在整块处理成功后推进扫描游标。
@@ -296,17 +298,17 @@ scanner 负责及时发现链上事实，`wallet-chain-server` 负责推进充�
 | 高度 | 所属位置 | 作用 |
 | --- | --- | --- |
 | `HEAD_BLOCK` | scanner 的 `tron_scan_checkpoint` | 已经完整扫描并成功上报的最新 Head 区块 |
-| 最新固化高度 | chain-server 确认任务每次从 SolidityNode 查询 | 判断哪些 `CONFIRMING` 充值已经具备核验条件 |
+| 最新固化高度 | scanner 和 chain-server 各自从 SolidityNode 查询，不持久化为扫块游标 | scanner 确定未固化重扫范围；chain-server 判断 `CONFIRMING` 充值是否具备核验条件 |
 
 最新固化高度是 TRON 网络水位，不是 scanner 的第二个顺序扫块游标，因此首期不需要 `CONFIRMED_BLOCK` 检查点。
 
 ### 7.2 scanner 首次启动高度
 
-当数据库不存在 `HEAD_BLOCK` 检查点时，必须使用部署时明确给出的 `initial-head-height` 创建检查点。
+当数据库不存在 `HEAD_BLOCK` 检查点时，必须使用部署时明确给出的 `start-block-height`，并从该高度开始扫描。
 
 生产环境不能静默使用当前最新高度，否则配置错误可能跳过应扫描区块；也不能默认从创世块开始，避免无意义地扫描全部历史。
 
-检查点一旦存在，后续启动忽略初始高度配置。
+检查点一旦存在，后续启动忽略 `start-block-height`，从数据库中最后成功处理高度的下一块继续。
 
 ### 7.3 scanner 单区块处理顺序
 
@@ -338,6 +340,15 @@ Head 区块可能在固化前发生分叉。只按高度向前扫描会遗漏同
 ```
 
 链服务使用 `txId + eventIndex` 幂等处理重复发现。这个窗口只覆盖尚未固化的少量区块，不需要保存全部区块历史。
+
+SolidityNode 暂时不可用时，Scanner 不伪造固化高度，也不停止 Head 新区块发现，而是降级为重扫最近 `recheckWindow` 个区块：
+
+```text
+从 max(0, HEAD_BLOCK - recheckWindow + 1) 开始
+→ 重新扫描到当前 HEAD_BLOCK
+```
+
+`recheckWindow` 默认为 `100`。这个降级只用于保持发现能力。chain-server 使用自己的 SolidityNode 连接独立确认；如果 chain-server 自身也无法完成固化核验，充值必须保持 `CONFIRMING`，不得上账。
 
 scanner 停机期间产生且已经固化的区块仍由 `HEAD_BLOCK` 顺序追赶处理，不能只扫描当前未固化窗口。
 
@@ -440,6 +451,8 @@ scanner 只有收到整批成功响应后才推进本地区块检查点。没有
 
 ## 10. 节点管理与切换
 
+节点 HTTP 接口、角色、超时、返回模型和错误分类以 [阶段4：TRON节点能力契约](阶段4-TRON节点能力契约.md) 为准。
+
 ### 10.1 配置
 
 scanner 首期配置两个或三个 FullNode，用于 Head 扫描；同时至少配置一个 SolidityNode，用于查询最新固化高度和重新检查未固化窗口。`wallet-chain-server` 的确认任务也通过链节点适配器访问 SolidityNode。节点地址和凭证放在 Nacos 或环境变量，不写数据库。
@@ -509,18 +522,37 @@ nb:
       chain-code: TRON
       chain-network: ${TRON_NETWORK:MAINNET}
       chain-service-url: ${CHAIN_SERVICE_URL:http://127.0.0.1:8080}
-      initial-head-height: ${TRON_INITIAL_HEAD_HEIGHT:}
+      start-block-height: ${TRON_SCAN_START_BLOCK_HEIGHT}
       max-blocks-per-run: 100
-      nodes:
-        - code: primary
-          full-node-url: ${TRON_FULL_NODE_PRIMARY_URL:}
-          solidity-url: ${TRON_SOLIDITY_PRIMARY_URL:}
-        - code: backup
-          full-node-url: ${TRON_FULL_NODE_BACKUP_URL:}
-          solidity-url: ${TRON_SOLIDITY_BACKUP_URL:}
+      recheck-window: 100
+      expected-genesis-block-id: ${TRON_GENESIS_BLOCK_ID}
+      node:
+        connect-timeout: 3s
+        read-timeout: 10s
+        max-response-size: 16MB
+        health-check-interval: 15s
+        failure-threshold: 3
+        height-lag-threshold: 20
+        recovery-cooldown: 60s
+        nodes:
+          - code: full-primary
+            role: FULL_NODE
+            priority: 1
+            base-url: ${TRON_FULL_NODE_PRIMARY_URL:}
+            api-key: ${TRON_FULL_NODE_PRIMARY_API_KEY:}
+          - code: full-backup
+            role: FULL_NODE
+            priority: 2
+            base-url: ${TRON_FULL_NODE_BACKUP_URL:}
+            api-key: ${TRON_FULL_NODE_BACKUP_API_KEY:}
+          - code: solidity-primary
+            role: SOLIDITY_NODE
+            priority: 1
+            base-url: ${TRON_SOLIDITY_NODE_URL:}
+            api-key: ${TRON_SOLIDITY_NODE_API_KEY:}
 ```
 
-`initial-head-height` 和节点地址在生产环境必须提供。地址分页大小由链服务固定，单轮区块上限提供默认值。
+`start-block-height`、创世区块 ID 和节点地址在生产环境必须提供。地址分页大小由链服务固定，单轮区块上限提供默认值。节点配置字段的最终含义以阶段 4 契约为准。
 
 ---
 
@@ -591,7 +623,7 @@ Job 只负责触发和记录执行结果，业务流程放在 Service。节点 S
 
 ### 阶段三：节点能力
 
-1. 接入 Trident 或明确的 TRON HTTP/gRPC 客户端。
+1. 接入 java-tron 原生 HTTP API，不引入 Trident、gRPC 或 JSON-RPC。
 2. 实现节点网络校验、健康检查和主备切换。
 3. 完成 Head 高度、固化高度和按高度取块能力。
 

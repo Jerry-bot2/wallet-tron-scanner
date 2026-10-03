@@ -26,3 +26,25 @@ nb:
     scanner:
       chain-code: TRON
       chain-network: ${TRON_NETWORK:MAINNET}
+      expected-genesis-block-id: ${TRON_GENESIS_BLOCK_ID:}
+      start-block-height: ${TRON_SCAN_START_BLOCK_HEIGHT:-1}
+      recheck-window: 100
+      node:
+        connect-timeout: 3s
+        read-timeout: 10s
+        max-response-size: 16MB
+        health-check-interval: 15s
+        failure-threshold: 3
+        height-lag-threshold: 20
+        recovery-cooldown: 60s
+        nodes:
+          - code: full-primary
+            role: FULL_NODE
+            priority: 1
+            base-url: ${TRON_FULL_NODE_PRIMARY_URL:}
+            api-key: ${TRON_FULL_NODE_PRIMARY_API_KEY:}
+          - code: solidity-primary
+            role: SOLIDITY_NODE
+            priority: 1
+            base-url: ${TRON_SOLIDITY_NODE_URL:}
+            api-key: ${TRON_SOLIDITY_NODE_API_KEY:}
