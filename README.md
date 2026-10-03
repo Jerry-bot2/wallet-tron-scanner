@@ -91,7 +91,7 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 - 区块公共字段只保存一份，单条 `DepositDiscoveryEvent` 保存交易事件字段。
 - Topic 为 `wallet.chain.deposit.discovered`，同一链网络使用固定消息 Key 保证顺序。
 
-6.2 链服务幂等接收
+6.2 链服务幂等接收 完成
 - 校验币种、充值地址和当前运行网络。
 - 通过 `chainCode + chainNetwork + txId + eventIndex` 幂等创建 `chain_deposit`。
 
