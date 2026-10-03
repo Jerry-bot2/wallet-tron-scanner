@@ -82,7 +82,9 @@ public class TronScannerProperties {
             && isPositive(node.getHealthCheckInterval())
             && isPositive(node.getRecoveryCooldown());
         boolean validThresholds = node.getFailureThreshold() > 0 && node.getHeightLagThreshold() >= 0;
-        boolean validResponseSize = node.getMaxResponseSize() != null && node.getMaxResponseSize().toBytes() > 0;
+        boolean validResponseSize = node.getMaxResponseSize() != null
+            && node.getMaxResponseSize().toBytes() > 0
+            && node.getMaxResponseSize().toBytes() < Integer.MAX_VALUE;
 
         BizAssert.isTrue(validTimeouts && validThresholds && validResponseSize, ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
     }
