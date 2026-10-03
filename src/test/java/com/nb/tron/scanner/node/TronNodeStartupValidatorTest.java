@@ -81,6 +81,7 @@ class TronNodeStartupValidatorTest {
             100L,
             0,
             10L,
+            Instant.now(),
             Instant.now());
     }
 
@@ -92,6 +93,7 @@ class TronNodeStartupValidatorTest {
             null,
             3,
             10L,
+            null,
             null);
     }
 }

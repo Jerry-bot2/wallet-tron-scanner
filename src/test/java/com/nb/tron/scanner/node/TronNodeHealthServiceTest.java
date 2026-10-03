@@ -83,6 +83,7 @@ class TronNodeHealthServiceTest {
         assertThat(state.consecutiveFailureCount()).isEqualTo(3);
         assertThat(state.latestBlockHeight()).isEqualTo(100L);
         assertThat(state.lastSuccessAt()).isNotNull();
+        assertThat(state.healthySince()).isNull();
     }
 
     @Test

@@ -15,6 +15,7 @@ import java.time.Instant;
  * @param consecutiveFailureCount 连续失败次数
  * @param responseTimeMillis      最近一次健康检查耗时
  * @param lastSuccessAt           最近一次检查成功时间，尚未成功时为空
+ * @param healthySince            当前连续健康周期的开始时间，节点恢复时重新计算
  *                                Author: bin jack
  *                                Date: 03.10.26
  */
@@ -24,13 +25,15 @@ public record TronNodeRuntimeState(String nodeCode,
                                    Long latestBlockHeight,
                                    int consecutiveFailureCount,
                                    long responseTimeMillis,
-                                   Instant lastSuccessAt) {
+                                   Instant lastSuccessAt,
+                                   Instant healthySince) {
 
     /**
      * 使用本次成功结果覆盖节点状态。
      */
     public static TronNodeRuntimeState success(String nodeCode,
                                                TronNodeRole nodeRole,
+                                               TronNodeRuntimeState currentState,
                                                long blockHeight,
                                                long responseTimeMillis,
                                                Instant successAt) {
@@ -41,7 +44,8 @@ public record TronNodeRuntimeState(String nodeCode,
             blockHeight,
             0,
             responseTimeMillis,
-            successAt);
+            successAt,
+            resolveHealthySince(currentState, successAt));
     }
 
     /**
@@ -62,7 +66,8 @@ public record TronNodeRuntimeState(String nodeCode,
             currentState == null ? null : currentState.latestBlockHeight(),
             failureCount,
             responseTimeMillis,
-            currentState == null ? null : currentState.lastSuccessAt());
+            currentState == null ? null : currentState.lastSuccessAt(),
+            preserveHealthySince(currentState, healthStatus));
     }
 
     public boolean isHealthy() {
@@ -76,5 +81,20 @@ public record TronNodeRuntimeState(String nodeCode,
             return TronNodeHealthStatus.UNHEALTHY;
         }
         return currentState == null ? TronNodeHealthStatus.UNKNOWN : currentState.healthStatus();
+    }
+
+    private static Instant resolveHealthySince(TronNodeRuntimeState currentState, Instant successAt) {
+        if (currentState == null || !currentState.isHealthy()) {
+            return successAt;
+        }
+        return currentState.healthySince();
+    }
+
+    private static Instant preserveHealthySince(TronNodeRuntimeState currentState,
+                                                TronNodeHealthStatus healthStatus) {
+        if (currentState == null || healthStatus != TronNodeHealthStatus.HEALTHY) {
+            return null;
+        }
+        return currentState.healthySince();
     }
 }

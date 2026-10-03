@@ -96,9 +96,10 @@ public class TronNodeHealthService {
         try {
             TronNodeHeight nodeHeight = probeNode(endpoint);
             long responseTimeMillis = elapsedMillis(startedAt);
-            nodeStates.put(endpoint.getCode(), TronNodeRuntimeState.success(
+            nodeStates.compute(endpoint.getCode(), (nodeCode, currentState) -> TronNodeRuntimeState.success(
                 endpoint.getCode(),
                 endpoint.getRole(),
+                currentState,
                 nodeHeight.blockHeight(),
                 responseTimeMillis,
                 Instant.now()));
