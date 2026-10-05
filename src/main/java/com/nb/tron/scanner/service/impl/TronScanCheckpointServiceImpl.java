@@ -25,10 +25,7 @@ public class TronScanCheckpointServiceImpl extends ServiceImpl<TronScanCheckpoin
     }
 
     @Override
-    public boolean advance(String chainNetwork,
-                           long expectedBlockNumber,
-                           long nextBlockNumber,
-                           String nextBlockHash) {
+    public boolean advance(String chainNetwork, long expectedBlockNumber, long nextBlockNumber, String nextBlockHash) {
         return lambdaUpdate()
                 .eq(TronScanCheckpoint::getChainNetwork, chainNetwork)
                 .eq(TronScanCheckpoint::getLastBlockNumber, expectedBlockNumber)

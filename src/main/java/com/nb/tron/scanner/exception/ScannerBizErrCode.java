@@ -52,6 +52,9 @@ public enum ScannerBizErrCode implements IBizErrCode {
     TRON_TRANSACTION_INVALID(915002, "TRON 交易数据不合法"),
     TRON_BLOCK_DATA_INCOMPLETE(915003, "TRON 区块交易或回执数据不完整"),
 
+    /// ////////////////////////////////////// Head 区块扫描 /////////////////////////////////////////
+    HEAD_SCAN_CHECKPOINT_CONFLICT(916001, "Head 扫块检查点已被其他任务推进"),
+
     /// ////////////////////////////////////// Scanner 内部错误 /////////////////////////////////////////
     CRYPTO_ALGORITHM_UNAVAILABLE(919001, "系统加密算法不可用"),
     ;

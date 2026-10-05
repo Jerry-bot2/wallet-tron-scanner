@@ -34,8 +34,5 @@ public interface ITronScanCheckpointService extends IBaseService<TronScanCheckpo
      * @param nextBlockHash 本次处理完成的区块Hash
      * @return 是否推进成功
      */
-    boolean advance(String chainNetwork,
-                    long expectedBlockNumber,
-                    long nextBlockNumber,
-                    String nextBlockHash);
+    boolean advance(String chainNetwork, long expectedBlockNumber, long nextBlockNumber, String nextBlockHash);
 }

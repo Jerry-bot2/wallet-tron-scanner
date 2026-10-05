@@ -49,6 +49,11 @@ public class TronScannerProperties {
     private Long startBlockHeight;
 
     /**
+     * 单次扫块任务最多顺序处理的区块数量
+     */
+    private int maxBlocksPerRun = 100;
+
+    /**
      * SolidityNode 不可用时，固定重新扫描的最近 Head 区块数量
      */
     private int recheckWindow = 100;
@@ -72,6 +77,7 @@ public class TronScannerProperties {
         BizAssert.isTrue(TronConstants.CHAIN_CODE.equals(chainCode), ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.hasText(chainNetwork, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.isTrue(startBlockHeight != null && startBlockHeight >= 0, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
+        BizAssert.isTrue(maxBlocksPerRun > 0, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.isTrue(recheckWindow > 0, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.hasText(expectedGenesisBlockId, ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
     }

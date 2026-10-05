@@ -167,6 +167,18 @@ class TronNodeManagerTest {
     }
 
     @Test
+    void shouldReadBlockHeaderFromSelectedNode() {
+        TronNodeEndpointProperties primary = endpoint("full-primary", TronNodeRole.FULL_NODE, 1);
+        scannerProperties.getNode().setNodes(List.of(primary));
+        when(nodeHealthService.getNodeStates()).thenReturn(List.of(
+            healthyState(primary, 100L, Instant.now().minusSeconds(120))));
+        TronNodeHeight expected = nodeHeight(primary, 90L);
+        when(nodeClient.getBlockHeaderByHeight(primary, 90L)).thenReturn(expected);
+
+        assertThat(nodeManager.getBlockHeaderByHeight(90L)).isSameAs(expected);
+    }
+
+    @Test
     void shouldRejectInvalidBlockHeightBeforeCallingNode() {
         assertThatThrownBy(() -> nodeManager.getBlockDataByHeight(-1L))
             .isInstanceOf(BizException.class)

@@ -321,8 +321,8 @@ scanner 负责及时发现链上事实，`wallet-chain-server` 负责推进充�
 → 校验区块高度、Hash 和时间
 → 等待区块内全部交易解析完成
 → 提取进入平台地址的 TRX/TRC20 事件
-→ 有充值事件时批量提交“充值发现”事实
-→ chain-server 返回整批成功
+→ 有充值事件时向 Kafka 发送区块充值事件
+→ Kafka Broker ACK 成功
 → 条件更新本地 HEAD_BLOCK 为 H + 1
 → 继续处理下一块
 ```

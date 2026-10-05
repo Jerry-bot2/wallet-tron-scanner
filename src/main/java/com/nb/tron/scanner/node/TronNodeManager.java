@@ -103,6 +103,19 @@ public class TronNodeManager {
     }
 
     /**
+     * 按高度读取区块头。
+     *
+     * <p>首次建立扫描检查点时使用，只读取前一区块 ID，不加载交易和回执。</p>
+     */
+    public TronNodeHeight getBlockHeaderByHeight(long blockHeight) {
+        TronNodeEndpointProperties selectedNode = selectFullNodeForBlock(blockHeight);
+        return executeReadWithFailover(
+            selectedNode,
+            endpoint -> nodeClient.getBlockHeaderByHeight(endpoint, blockHeight),
+            failedNodeCode -> switchFullNodeForBlock(failedNodeCode, blockHeight));
+    }
+
+    /**
      * 为查询最新 Head 高度选择一个健康且没有明显落后的 FullNode。
      */
     TronNodeEndpointProperties selectFullNodeForHead() {

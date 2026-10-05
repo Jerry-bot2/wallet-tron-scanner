@@ -95,7 +95,7 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 - 校验币种、充值地址和当前运行网络。
 - 通过 `chainCode + chainNetwork + txId + eventIndex` 幂等创建 `chain_deposit`。
 
-6.3 Scanner 区块处理编排
+6.3 Scanner 区块处理编排 完成
 - 读取下一个区块，解析并发送全部充值事实。
 - Kafka Broker ACK 成功后推进 `HEAD_BLOCK` 检查点。
 

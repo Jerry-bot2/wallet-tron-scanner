@@ -33,6 +33,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("com.nb:nb-core:$nbCommonVersion")
     implementation("com.nb:nb-feign-starter:$nbCommonVersion")
+    implementation("com.nb:nb-kafka-starter:$nbCommonVersion")
     implementation("com.nb:chain-client:$chainClientVersion")
     implementation("com.nb:nb-job-starter:$nbCommonVersion")
     implementation("com.nb:nb-mybatis-starter:$nbCommonVersion")
