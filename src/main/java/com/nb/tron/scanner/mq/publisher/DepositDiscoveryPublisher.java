@@ -3,22 +3,25 @@ package com.nb.tron.scanner.mq.publisher;
 import com.nb.chain.client.constant.ChainKafkaTopics;
 import com.nb.chain.client.event.DepositDiscoveryEvent;
 import com.nb.chain.client.event.ObservedBlockEvent;
-import com.nb.kafka.core.KafkaPublishResult;
+import com.nb.core.exception.BizException;
 import com.nb.kafka.core.KafkaPublisher;
 import com.nb.tron.scanner.config.TronScannerProperties;
+import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.model.TronBlockData;
 import com.nb.tron.scanner.model.TronDepositEvent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 充值发现消息发布器
  *
- * <p>负责把 Scanner 内部解析模型转换成 chain-client 公共事件，并按链和网络
- * 使用固定消息 Key 发送到 Kafka。</p>
+ * <p>把 Scanner 内部解析模型转换成 chain-client 公共事件，按链和网络
+ * 使用固定消息 Key 发送到 Kafka，并等待 Broker 确认。</p>
  * <p>
  * Author: bin jack
  * Date: 03.10.26
@@ -32,18 +35,32 @@ public class DepositDiscoveryPublisher {
     private final KafkaPublisher kafkaPublisher;
 
     /**
-     * 发布一个区块内发现的全部充值
+     * 发送一个区块内发现的全部充值，并等待 Broker 确认。
+     * 发送失败或等待超时会抛出异常，调用方不能推进扫描检查点。
      *
      * @param blockData 当前区块数据
      * @param deposits  当前区块识别出的充值事实
-     * @return Broker 确认结果；调用方必须等待完成后才能推进扫描检查点
      */
-    public CompletableFuture<KafkaPublishResult> publish(TronBlockData blockData, List<TronDepositEvent> deposits) {
+    public void publishAndWait(TronBlockData blockData, List<TronDepositEvent> deposits) {
         ObservedBlockEvent blockEvent = toBlockEvent(blockData, deposits);
-        return kafkaPublisher.publish(
-            ChainKafkaTopics.DEPOSIT_DISCOVERED,
-            blockEvent.messageKey(),
-            blockEvent);
+        try {
+            kafkaPublisher.publish(ChainKafkaTopics.DEPOSIT_DISCOVERED, blockEvent.messageKey(), blockEvent)
+                .get(scannerProperties.getKafkaAckTimeout().toMillis(), TimeUnit.MILLISECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw publishFailed(blockData, exception);
+        } catch (ExecutionException exception) {
+            throw publishFailed(blockData, exception.getCause());
+        } catch (TimeoutException | RuntimeException exception) {
+            throw publishFailed(blockData, exception);
+        }
+    }
+
+    private BizException publishFailed(TronBlockData blockData, Throwable cause) {
+        return new BizException(
+            ScannerBizErrCode.HEAD_SCAN_KAFKA_PUBLISH_FAILED,
+            cause,
+            blockData.blockHeight());
     }
 
     private ObservedBlockEvent toBlockEvent(TronBlockData blockData, List<TronDepositEvent> deposits) {

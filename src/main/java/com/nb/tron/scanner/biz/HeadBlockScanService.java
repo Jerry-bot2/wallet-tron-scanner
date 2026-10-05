@@ -26,6 +26,9 @@ import java.util.List;
  * 3. 从检查点下一高度开始顺序读取和解析区块。<br>
  * 4. 有充值时发送 Kafka，并等待 Broker ACK。<br>
  * 5. 当前区块完整处理成功后，条件更新数据库检查点。
+ *
+ * <p>任一步失败时，异常直接结束本轮任务，后续区块不再处理。
+ * 下一轮重新读取数据库检查点，从最后成功高度的下一块继续。</p>
  * <p>
  * Author: bin jack
  * Date: 03.10.26
@@ -51,6 +54,9 @@ public class HeadBlockScanService {
     /**
      * 顺序追赶当前 Head 高度
      *
+     * <p>例如 100 已处理成功、101 发送失败，数据库进度停留在 100。
+     * 下次调度或服务重启后从 101 重试，不会跳到 102。</p>
+     *
      * @return 本轮成功处理并推进检查点的区块数量
      */
     public int scanBlocks() {
@@ -73,7 +79,7 @@ public class HeadBlockScanService {
         List<TronDepositEvent> deposits = blockParser.parse(blockData);
 
         if (!deposits.isEmpty()) {
-            depositPublisher.publish(blockData, deposits).join();
+            depositPublisher.publishAndWait(blockData, deposits);
         }
 
         // 当前区块处理成功后，将扫描进度推进到本次请求的高度。

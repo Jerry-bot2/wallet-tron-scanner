@@ -99,7 +99,7 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 - 读取下一个区块，解析并发送全部充值事实。
 - Kafka Broker ACK 成功后推进 `HEAD_BLOCK` 检查点。
 
-6.4 失败重试
+6.4 失败重试 完成
 - 节点读取、解析或 Kafka 发送失败时不推进检查点。
 - 下一轮继续处理同一高度，依靠链服务幂等安全重发。
 

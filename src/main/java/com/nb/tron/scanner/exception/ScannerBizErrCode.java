@@ -54,6 +54,7 @@ public enum ScannerBizErrCode implements IBizErrCode {
 
     /// ////////////////////////////////////// Head 区块扫描 /////////////////////////////////////////
     HEAD_SCAN_CHECKPOINT_CONFLICT(916001, "Head 扫块检查点已被其他任务推进"),
+    HEAD_SCAN_KAFKA_PUBLISH_FAILED(916002, "Head 扫块充值事件投递未确认，区块高度 {0}"),
 
     /// ////////////////////////////////////// Scanner 内部错误 /////////////////////////////////////////
     CRYPTO_ALGORITHM_UNAVAILABLE(919001, "系统加密算法不可用"),

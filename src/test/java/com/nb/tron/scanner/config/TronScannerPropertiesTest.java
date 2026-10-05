@@ -6,6 +6,7 @@ import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThatNoException;
@@ -45,6 +46,17 @@ class TronScannerPropertiesTest {
             .isInstanceOf(BizException.class)
             .extracting(exception -> ((BizException) exception).getErrorCode())
             .isEqualTo(ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
+    }
+
+    @Test
+    void shouldRejectZeroKafkaAckTimeout() {
+        TronScannerProperties properties = validProperties();
+        properties.setKafkaAckTimeout(Duration.ZERO);
+
+        assertThatThrownBy(properties::validate)
+            .isInstanceOf(BizException.class)
+            .extracting(exception -> ((BizException) exception).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
     }
 
     private TronScannerProperties validProperties() {

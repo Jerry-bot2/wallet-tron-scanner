@@ -54,6 +54,11 @@ public class TronScannerProperties {
     private int maxBlocksPerRun = 100;
 
     /**
+     * 发送充值事件后等待 Kafka Broker 确认的最长时间
+     */
+    private Duration kafkaAckTimeout = Duration.ofSeconds(30);
+
+    /**
      * SolidityNode 不可用时，固定重新扫描的最近 Head 区块数量
      */
     private int recheckWindow = 100;
@@ -78,6 +83,8 @@ public class TronScannerProperties {
         BizAssert.hasText(chainNetwork, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.isTrue(startBlockHeight != null && startBlockHeight >= 0, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.isTrue(maxBlocksPerRun > 0, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
+        BizAssert.isTrue(isPositive(kafkaAckTimeout) && kafkaAckTimeout.toMillis() > 0,
+            ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.isTrue(recheckWindow > 0, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.hasText(expectedGenesisBlockId, ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
     }

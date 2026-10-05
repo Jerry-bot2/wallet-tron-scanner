@@ -2,21 +2,26 @@ package com.nb.tron.scanner.mq.publisher;
 
 import com.nb.chain.client.constant.ChainKafkaTopics;
 import com.nb.chain.client.event.ObservedBlockEvent;
+import com.nb.core.exception.BizException;
 import com.nb.kafka.core.KafkaPublishResult;
 import com.nb.kafka.core.KafkaPublisher;
 import com.nb.tron.scanner.config.TronScannerProperties;
+import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.model.TronBlockData;
 import com.nb.tron.scanner.model.TronDepositEvent;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.math.BigInteger;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -45,7 +50,7 @@ class DepositDiscoveryPublisherTest {
             any()))
             .thenReturn(CompletableFuture.completedFuture(publishResult));
 
-        CompletableFuture<KafkaPublishResult> result = publisher.publish(blockData(), List.of(deposit()));
+        publisher.publishAndWait(blockData(), List.of(deposit()));
 
         ArgumentCaptor<ObservedBlockEvent> eventCaptor = ArgumentCaptor.captor();
         verify(kafkaPublisher).publish(
@@ -53,13 +58,66 @@ class DepositDiscoveryPublisherTest {
             eq("TRON:MAINNET"),
             eventCaptor.capture());
         ObservedBlockEvent blockEvent = eventCaptor.getValue();
-        assertThat(result.join()).isSameAs(publishResult);
         assertThat(blockEvent.getBlockNumber()).isEqualTo(100L);
         assertThat(blockEvent.getBlockHash()).isEqualTo("block-100");
         assertThat(blockEvent.getDeposits()).hasSize(1);
         assertThat(blockEvent.getDeposits().getFirst().getTxId()).isEqualTo("tx-1");
         assertThat(blockEvent.getDeposits().getFirst().getRawAmount())
             .isEqualTo(BigInteger.valueOf(1_000_000L));
+    }
+
+    @Test
+    void shouldFailWhenBrokerAckTimesOut() {
+        TronScannerProperties scannerProperties = new TronScannerProperties();
+        scannerProperties.setKafkaAckTimeout(Duration.ofMillis(20));
+        KafkaPublisher kafkaPublisher = mock(KafkaPublisher.class);
+        DepositDiscoveryPublisher publisher = new DepositDiscoveryPublisher(scannerProperties, kafkaPublisher);
+        when(kafkaPublisher.publish(anyString(), anyString(), any()))
+            .thenReturn(new CompletableFuture<>());
+
+        assertThatThrownBy(() -> publisher.publishAndWait(blockData(), List.of(deposit())))
+            .isInstanceOf(BizException.class)
+            .hasCauseInstanceOf(TimeoutException.class)
+            .hasMessageContaining("100")
+            .extracting(exception -> ((BizException) exception).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.HEAD_SCAN_KAFKA_PUBLISH_FAILED);
+    }
+
+    @Test
+    void shouldKeepProducerFailureAsCause() {
+        TronScannerProperties scannerProperties = new TronScannerProperties();
+        KafkaPublisher kafkaPublisher = mock(KafkaPublisher.class);
+        DepositDiscoveryPublisher publisher = new DepositDiscoveryPublisher(scannerProperties, kafkaPublisher);
+        RuntimeException failure = new RuntimeException("Broker unavailable");
+        when(kafkaPublisher.publish(anyString(), anyString(), any()))
+            .thenReturn(CompletableFuture.failedFuture(failure));
+
+        assertThatThrownBy(() -> publisher.publishAndWait(blockData(), List.of(deposit())))
+            .isInstanceOf(BizException.class)
+            .hasCause(failure)
+            .extracting(exception -> ((BizException) exception).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.HEAD_SCAN_KAFKA_PUBLISH_FAILED);
+    }
+
+    @Test
+    void shouldStopWaitingWhenJobThreadIsInterrupted() {
+        TronScannerProperties scannerProperties = new TronScannerProperties();
+        KafkaPublisher kafkaPublisher = mock(KafkaPublisher.class);
+        DepositDiscoveryPublisher publisher = new DepositDiscoveryPublisher(scannerProperties, kafkaPublisher);
+        when(kafkaPublisher.publish(anyString(), anyString(), any()))
+            .thenReturn(new CompletableFuture<>());
+
+        Thread.currentThread().interrupt();
+        try {
+            assertThatThrownBy(() -> publisher.publishAndWait(blockData(), List.of(deposit())))
+                .isInstanceOf(BizException.class)
+                .hasCauseInstanceOf(InterruptedException.class)
+                .extracting(exception -> ((BizException) exception).getErrorCode())
+                .isEqualTo(ScannerBizErrCode.HEAD_SCAN_KAFKA_PUBLISH_FAILED);
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        } finally {
+            Thread.interrupted();
+        }
     }
 
     private TronBlockData blockData() {
