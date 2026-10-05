@@ -44,7 +44,7 @@ public class TronScannerProperties {
     private String expectedGenesisBlockId;
 
     /**
-     * 本地没有扫描检查点时，第一个需要扫描的区块高度
+     * 首次扫描的起始高度；仅首次初始化使用，分叉时查找最近的共同区块
      */
     private Long startBlockHeight;
 
@@ -59,9 +59,9 @@ public class TronScannerProperties {
     private Duration kafkaAckTimeout = Duration.ofSeconds(30);
 
     /**
-     * SolidityNode 不可用时，固定重新扫描的最近 Head 区块数量
+     * 每个网络最多保留的区块摘要条数，默认 1000；分叉超出保留范围时停止并报错
      */
-    private int recheckWindow = 100;
+    private int blockHistorySize = 1000;
 
     /**
      * TRON 节点访问策略及节点列表
@@ -85,7 +85,7 @@ public class TronScannerProperties {
         BizAssert.isTrue(maxBlocksPerRun > 0, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.isTrue(isPositive(kafkaAckTimeout) && kafkaAckTimeout.toMillis() > 0,
             ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
-        BizAssert.isTrue(recheckWindow > 0, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
+        BizAssert.isTrue(blockHistorySize >= 2, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.hasText(expectedGenesisBlockId, ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
     }
 
@@ -118,7 +118,7 @@ public class TronScannerProperties {
             nodeRoles.add(endpoint.getRole());
         }
 
-        BizAssert.isTrue(nodeRoles.contains(TronNodeRole.FULL_NODE) && nodeRoles.contains(TronNodeRole.SOLIDITY_NODE), ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
+        BizAssert.isTrue(nodeRoles.contains(TronNodeRole.FULL_NODE), ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
     }
 
     private boolean isPositive(Duration duration) {

@@ -18,11 +18,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
     "nb.tron.scanner.node.nodes[0].code=full-primary",
     "nb.tron.scanner.node.nodes[0].role=FULL_NODE",
     "nb.tron.scanner.node.nodes[0].priority=1",
-    "nb.tron.scanner.node.nodes[0].base-url=http://127.0.0.1:8090",
-    "nb.tron.scanner.node.nodes[1].code=solidity-primary",
-    "nb.tron.scanner.node.nodes[1].role=SOLIDITY_NODE",
-    "nb.tron.scanner.node.nodes[1].priority=1",
-    "nb.tron.scanner.node.nodes[1].base-url=http://127.0.0.1:8091"
+    "nb.tron.scanner.node.nodes[0].base-url=http://127.0.0.1:8090"
 })
 class TronScannerApplicationTest {
 

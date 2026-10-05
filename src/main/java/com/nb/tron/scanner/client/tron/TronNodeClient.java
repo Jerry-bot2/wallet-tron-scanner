@@ -62,8 +62,8 @@ public class TronNodeClient {
      * 查询 SolidityNode 当前已经固化到哪个区块
      *
      * <p>
-     * Scanner 用这个高度缩小未固化区块的重复扫描范围。最终是否给用户入账，
-     * 仍由 wallet-chain-server 独立核验。
+     * 保留为可选节点能力。Head 扫描和分叉回退不依赖该接口，
+     * 充值固化确认由 wallet-chain-server 独立核验。
      * </p>
      *
      * @param endpoint 本次查询使用的 SolidityNode
@@ -79,8 +79,8 @@ public class TronNodeClient {
      * 查询指定高度的区块头，不读取区块交易
      *
      * <p>
-     * 当前主要在 Scanner 启动时查询第 0 个区块，将返回的区块 ID 与配置的
-     * 创世区块 ID 比较，防止生产环境误连到测试网络。
+     * 1. 启动时读取第 0 个区块，核对创世区块 ID，防止连错网络。<br>
+     * 2. 扫描时核对已扫描区块，以及读取回执期间区块 Hash 是否发生变化。
      * </p>
      *
      * @param endpoint    本次查询使用的 FullNode 或 SolidityNode
@@ -102,10 +102,13 @@ public class TronNodeClient {
      * 读取指定高度的完整区块数据
      *
      * <p>
-     * 先从一个 FullNode 读取区块和交易列表，再从同一个 FullNode 读取这些
-     * 交易的执行回执，最后组合成一份数据交给后续 TRX 和 TRC20 解析流程。
-     * 任意一次请求失败，本次区块读取整体失败，不会混用不同节点的数据。
+     * 1. 第一次请求：读取区块 Hash 和交易列表，得到转账或合约调用内容。<br>
+     * 2. 第二次请求：读取这些交易的执行回执，得到实际产生的 Transfer 日志。<br>
+     * 3. 第三次请求：重新读取同一高度的区块，比较 Hash，确认读取回执期间区块未发生变化。
      * </p>
+     * <p>前两次请求都需要：区块包含交易内容，但不包含执行产生的 Transfer 日志，
+     * USDT／TRC20 转账要从回执日志中识别。第三次请求用于检查前两次读取之间是否发生分叉。
+     * 三次请求都使用同一个 FullNode，任意一次失败或 Hash 改变，本次读取整体失败，由节点管理器处理重试。</p>
      *
      * @param endpoint    本次读取使用的 FullNode
      * @param blockHeight 要读取的区块高度
@@ -116,12 +119,18 @@ public class TronNodeClient {
         requireBlockHeight(blockHeight);
 
         String requestBody = blockRequest(blockHeight);
+
+        // 1. 第一次请求：读取区块及交易列表，拿到区块 Hash、普通 TRX 转账或合约调用内容。
         JsonNode blockResponse = httpTransport.post(endpoint, FULL_BLOCK_BY_NUM_PATH, requestBody);
         BlockHeader blockHeader = readBlockHeader(blockResponse, blockHeight);
         List<TronTransaction> transactions = readTransactions(blockResponse.path("transactions"));
+
+        // 2. 第二次请求：读取执行回执，拿到 USDT／TRC20 实际转账的 Transfer 日志。
+        // 区块里只有交易内容，没有这些日志，因此只请求第一次会漏掉合约执行产生的转账。
         JsonNode receiptResponse = httpTransport.post(endpoint, TRANSACTION_INFO_BY_BLOCK_PATH, requestBody);
         Map<String, TronTransactionReceipt> receipts = readReceipts(receiptResponse, blockHeight);
 
+        // 两次读取的交易与回执必须按交易 ID 完整对应，缺少或多出回执都不能继续解析。
         boolean completeReceipts = transactions.stream()
             .map(TronTransaction::transactionId)
             .allMatch(receipts::containsKey)
@@ -129,6 +138,13 @@ public class TronNodeClient {
         if (!completeReceipts) {
             throw BizException.of(ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
         }
+
+        // 3. 第三次请求：再读同一高度的区块，只取 Hash 与第一次比较。
+        // 前两次是独立请求，期间可能分叉。例如第一次是 100/A，第三次变为 100/B，
+        // 就丢弃本次区块和回执，由节点管理器整块重读，避免混用不同分支的数据。
+        TronNodeHeight currentBlock = getBlockHeaderByHeight(endpoint, blockHeight);
+        BizAssert.isTrue(blockHeader.blockId().equals(currentBlock.blockId()),
+            ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
 
         return new TronBlockData(
             endpoint.getCode(),

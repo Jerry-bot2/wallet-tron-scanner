@@ -1,7 +1,6 @@
 package com.nb.tron.scanner.node;
 
 import com.nb.core.exception.BizException;
-import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.enums.TronNodeRole;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.model.TronNodeRuntimeState;
@@ -29,8 +28,6 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TronNodeStartupValidator implements ApplicationRunner {
 
-    private final TronScannerProperties scannerProperties;
-
     private final TronNodeHealthService nodeHealthService;
 
     @Override
@@ -46,8 +43,8 @@ public class TronNodeStartupValidator implements ApplicationRunner {
      * 防止生产环境连接到测试网络；
      * 2.可用性检查：FullNode 查询最新 Head 高度，SolidityNode 查询最新固化高度，
      * 确认节点能够正常返回合法区块信息；
-     * 3.启动判定：至少一个 FullNode 可用才允许 Scanner 启动。SolidityNode 暂时
-     * 不可用时允许启动，后续扫块使用固定窗口重复扫描未固化区块。
+     * 3.启动判定：至少一个 FullNode 可用才允许 Scanner 启动。
+     * SolidityNode 是可选能力，不参与 Head 扫描和分叉回退。
      * </p>
      */
     public void validateConfiguredNodes() {
@@ -55,7 +52,7 @@ public class TronNodeStartupValidator implements ApplicationRunner {
         long fullNodeCount = countHealthyNodes(nodeStates, TronNodeRole.FULL_NODE);
         long solidityNodeCount = countHealthyNodes(nodeStates, TronNodeRole.SOLIDITY_NODE);
 
-        validateStartupReadiness(fullNodeCount, solidityNodeCount);
+        validateStartupReadiness(fullNodeCount);
 
         log.info("TRON节点启动校验完成，availableFullNodes={}，availableSolidityNodes={}",
             fullNodeCount,
@@ -69,13 +66,11 @@ public class TronNodeStartupValidator implements ApplicationRunner {
             .count();
     }
 
-    private void validateStartupReadiness(long fullNodeCount, long solidityNodeCount) {
+    private void validateStartupReadiness(long fullNodeCount) {
         if (fullNodeCount == 0) {
             throw BizException.of(ScannerBizErrCode.TRON_NODE_UNAVAILABLE);
         }
-        if (solidityNodeCount == 0) {
-            log.warn("TRON SolidityNode启动校验未通过，将按固定窗口重扫Head区块，recheckWindow={}", scannerProperties.getRecheckWindow());
-        }
+
     }
 
 }

@@ -63,7 +63,7 @@ public class TronNodeManager {
     private final ConcurrentMap<TronNodeRole, String> activeNodeCodes = new ConcurrentHashMap<>();
 
     /**
-     * 请求失败的节点在冷却结束前不再参与选择，防止 A、B 节点反复切换。
+     * 请求失败或数据不一致的节点在冷却结束前不再参与选择，防止 A、B 节点反复切换。
      * 例如 A 请求失败后切到 B，接下来 60 秒继续使用 B，之后才允许再次选择 A。
      */
     private final ConcurrentMap<String, Instant> recoveryBlockedUntil = new ConcurrentHashMap<>();
@@ -105,7 +105,7 @@ public class TronNodeManager {
     /**
      * 按高度读取区块头。
      *
-     * <p>首次建立扫描检查点时使用，只读取前一区块 ID，不加载交易和回执。</p>
+     * <p>每轮核对已扫描末块是否被替换，只读取区块头，不解析交易和回执。</p>
      */
     public TronNodeHeight getBlockHeaderByHeight(long blockHeight) {
         TronNodeEndpointProperties selectedNode = selectFullNodeForBlock(blockHeight);
@@ -113,6 +113,28 @@ public class TronNodeManager {
             selectedNode,
             endpoint -> nodeClient.getBlockHeaderByHeight(endpoint, blockHeight),
             failedNodeCode -> switchFullNodeForBlock(failedNodeCode, blockHeight));
+    }
+
+    /**
+     * 为一次共同区块查找固定 FullNode，节点必须已经同步到扫描进度。
+     * 后续请求失败时结束查找，下一轮从头使用备用节点，查找途中不切换节点。
+     */
+    public TronBlockHeaderReader openBlockHeaderReader(long requiredBlockHeight) {
+        TronNodeEndpointProperties endpoint = selectFullNodeForBlock(requiredBlockHeight);
+        return new TronBlockHeaderReader(nodeClient, endpoint, () -> startRecoveryCooldown(endpoint.getCode()));
+    }
+
+    /**
+     * 将读取失败或返回不一致数据的节点暂时排除，冷却期间不再选择它。
+     * 例如 A 的下一块接不上，但末块仍正确：冷却 A，下轮可选择 B 重新读取。
+     * 找到共同区块后的正常回退不需要冷却节点。
+     *
+     * @param nodeCode 实际返回异常数据的节点编码
+     */
+    public void startRecoveryCooldown(String nodeCode) {
+        recoveryBlockedUntil.put(
+            nodeCode,
+            Instant.now().plus(scannerProperties.getNode().getRecoveryCooldown()));
     }
 
     /**
@@ -365,12 +387,6 @@ public class TronNodeManager {
                 candidate.endpoint().getCode());
         }
         return candidate.endpoint();
-    }
-
-    private void startRecoveryCooldown(String nodeCode) {
-        recoveryBlockedUntil.put(
-            nodeCode,
-            Instant.now().plus(scannerProperties.getNode().getRecoveryCooldown()));
     }
 
     private boolean isInRecoveryCooldown(String nodeCode, Instant now) {

@@ -20,7 +20,7 @@ wallet-tron-scanner
 
 ## 当前阶段
 
-扫描器两张基础表、持久化能力和 `chain-client` 契约已经就绪。下一步实现链服务接口和扫描器同步流程：
+扫描器基础表、区块摘要和持久化能力和 `chain-client` 契约已经就绪。下一步实现链服务接口和扫描器同步流程：
 
 ```text
 从 wallet-chain-server 增量拉取地址
@@ -103,9 +103,14 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 - 节点读取、解析或 Kafka 发送失败时不推进检查点。
 - 下一轮继续处理同一高度，依靠链服务幂等安全重发。
 
-6.5 区块连续性检查
-- 推进高度前校验当前区块 `parentBlockId` 与上一检查点 `blockId`。
-- 不一致时进入未固化分叉处理。
+6.5 区块连续性检查 完成
+- 每轮核对已扫描末块 Hash，解析前检查下一块的父 Hash。
+- 读取回执后复核区块 Hash，发生变化就丢弃本次数据，整块重读。
+- 下一块接不上但末块仍正确时，冷却返回异常数据的节点；分叉成功回退时正常结束任务，下轮重扫。
+- 新增 `tron_scanned_block`，摘要与检查点在一个手动事务中提交。
+- 分叉时固定一个 FullNode，二分查找最近共同区块，事务回退后重扫。
+- 默认保留最近 1000 条区块摘要，成功推进进度时自动清理；超出历史范围时报错停止。充值固化确认由 chain-server 完成。
+- 旧库升级及一次性初始化回放步骤见[阶段 6 设计第 9.6 节](docs/阶段6-充值发现闭环设计.md#96-首次部署与旧版本迁移)。
 
 6.6 样本测试与图解
 - 验证空区块、单笔和多笔充值、重复扫描、上报失败及重启恢复。
@@ -119,3 +124,10 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 提现 -> 没有开始
 归集 -> 没有开始
 签名服务 -> 没有开始
+
+查看连续性代码：
+
+1. `HeadBlockContinuityService`：检查末块和父 Hash，触发回退。
+2. `HeadBlockAncestorFinder`：读取节点与摘要、调用算法并复核共同区块。
+   `algorithm.BinarySearch.findLastMatch`：独立的二分查找算法，返回最后相同的高度。
+3. `HeadScanProgressService`：保存进度、清理摘要和事务回退。

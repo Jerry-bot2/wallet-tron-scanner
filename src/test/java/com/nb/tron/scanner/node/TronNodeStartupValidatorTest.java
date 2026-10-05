@@ -1,7 +1,6 @@
 package com.nb.tron.scanner.node;
 
 import com.nb.core.exception.BizException;
-import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.enums.TronNodeHealthStatus;
 import com.nb.tron.scanner.enums.TronNodeRole;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
@@ -29,9 +28,8 @@ class TronNodeStartupValidatorTest {
 
     @BeforeEach
     void setUp() {
-        TronScannerProperties scannerProperties = new TronScannerProperties();
         nodeHealthService = mock(TronNodeHealthService.class);
-        startupValidator = new TronNodeStartupValidator(scannerProperties, nodeHealthService);
+        startupValidator = new TronNodeStartupValidator(nodeHealthService);
     }
 
     @Test

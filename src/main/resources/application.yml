@@ -36,8 +36,3 @@ nb:
             priority: 1
             base-url: ${TRON_FULL_NODE_PRIMARY_URL:}
             api-key: ${TRON_FULL_NODE_PRIMARY_API_KEY:}
-          - code: solidity-primary
-            role: SOLIDITY_NODE
-            priority: 1
-            base-url: ${TRON_SOLIDITY_NODE_URL:}
-            api-key: ${TRON_SOLIDITY_NODE_API_KEY:}

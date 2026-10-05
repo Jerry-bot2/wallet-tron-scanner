@@ -18,21 +18,31 @@ public interface ITronScanCheckpointService extends IBaseService<TronScanCheckpo
     TronScanCheckpoint findByNetwork(String chainNetwork);
 
     /**
-     * 初始化指定网络的检查点，并发重复初始化时返回数据库已有记录。
-     *
-     * @param checkpoint 初始检查点
-     * @return 新增或已经存在的检查点
+     * 短事务内锁定网络检查点，串行提交进度、清理摘要和分叉回退。
      */
-    TronScanCheckpoint initializeIfAbsent(TronScanCheckpoint checkpoint);
+    TronScanCheckpoint lockByNetwork(String chainNetwork);
 
     /**
-     * 仅当数据库仍处于预期高度时推进Head扫块检查点。
+     * 仅当数据库高度和Hash都与当前任务读取的检查点一致时推进。
      *
      * @param chainNetwork TRON网络
      * @param expectedBlockNumber 当前任务读取到的区块高度
+     * @param expectedBlockHash 当前任务读取到的区块Hash
      * @param nextBlockNumber 本次处理完成的区块高度
      * @param nextBlockHash 本次处理完成的区块Hash
      * @return 是否推进成功
      */
-    boolean advance(String chainNetwork, long expectedBlockNumber, long nextBlockNumber, String nextBlockHash);
+    boolean advance(String chainNetwork, long expectedBlockNumber, String expectedBlockHash, long nextBlockNumber, String nextBlockHash);
+
+    /**
+     * 发现 Head 分叉时，按原高度和Hash条件回退检查点。
+     *
+     * @param chainNetwork 当前TRON网络
+     * @param expectedBlockNumber 回退前的检查点高度
+     * @param expectedBlockHash 回退前的检查点Hash
+     * @param rewindBlockNumber 已核验的最近共同区块高度
+     * @param rewindBlockHash 回退区块Hash
+     * @return 是否回退成功
+     */
+    boolean rewind(String chainNetwork, long expectedBlockNumber, String expectedBlockHash, long rewindBlockNumber, String rewindBlockHash);
 }

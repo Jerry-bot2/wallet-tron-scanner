@@ -18,9 +18,9 @@
 |---|---|---|
 | FullNode 主节点 | 查询最新 Head 高度；按高度读取完整区块；作为正常扫块数据源 | 不作为最终到账依据 |
 | FullNode 备用节点 | 主节点不可用或明显落后时接管 Head 查询和区块读取 | 主节点正常时不得随机分流；按高度读取时，未同步到请求高度的节点不得接管 |
-| SolidityNode | 查询最新固化高度，用于确定 Scanner 重扫未固化区块的起点 | 不替代 FullNode 扫描最新 Head；不在 Scanner 中确认充值到账 |
+| SolidityNode（可选） | 保留固化高度和区块头读取能力 | 不参与 Scanner 的 Head 扫描与分叉回退 |
 
-SolidityNode 与 FullNode 虽然读取同一条链，但服务高度语义不同，不能互相作为无条件备用节点。`wallet-chain-server` 会独立读取 SolidityNode 核验充值是否最终固化；Scanner 只使用固化高度缩小未固化区块重扫范围，不推进业务状态。
+SolidityNode 与 FullNode 虽然读取同一条链，但服务高度语义不同，不能互相作为无条件备用节点。`wallet-chain-server` 会独立读取 SolidityNode 核验充值是否最终固化；Scanner 通过 FullNode 比较历史 Hash、查找共同区块，不推进充值固化状态。
 
 ### 2.1 最终责任边界
 
@@ -36,7 +36,7 @@ Scanner 读取 FullNode Head
 
 - Scanner 负责及时发现和 Head 分叉重扫，不判定充值最终到账。
 - `wallet-chain-server` 负责保存链事实、核验固化结果和推进充值状态。
-- 两个服务可以独立查询固化高度，但用途不同，不在服务之间传递固化高度。
+- Scanner 不依赖固化高度；chain-server 独立查询固化交易和回执。
 
 ## 3. 冻结的 TRON HTTP 接口
 
@@ -183,7 +183,6 @@ nb:
       chain-network: ${TRON_NETWORK:MAINNET}
       expected-genesis-block-id: ${TRON_GENESIS_BLOCK_ID}
       start-block-height: ${TRON_SCAN_START_BLOCK_HEIGHT}
-      recheck-window: 100
       node:
         connect-timeout: 3s
         read-timeout: 10s
@@ -203,19 +202,14 @@ nb:
             priority: 2
             base-url: ${TRON_FULL_NODE_BACKUP_URL:}
             api-key: ${TRON_FULL_NODE_BACKUP_API_KEY:}
-          - code: solidity-primary
-            role: SOLIDITY_NODE
-            priority: 1
-            base-url: ${TRON_SOLIDITY_NODE_URL:}
-            api-key: ${TRON_SOLIDITY_NODE_API_KEY:}
 ```
 
 - `base-url`、API Key 和创世区块 ID 只能由 Nacos 或环境变量提供，不写入代码仓库。
-- `start-block-height` 只在本地没有扫块检查点时使用，表示第一个需要扫描的区块高度；检查点存在后以数据库为准。
+- `start-block-height` 表示首次扫描起点，前一区块从 FullNode 读取，不必等待固化；正常续扫以数据库检查点为准，分叉时查找最近共同区块。
 - `failure-threshold` 表示节点连续失败多少次后标记为不健康，默认 `3`。它不限制当前请求使用备用节点完成一次安全降级。
 - `height-lag-threshold` 表示 FullNode 比本轮所有健康 FullNode 的最高高度落后多少个区块后视为明显落后，默认 `20`；单个节点不能凭自身高度判定是否落后。
 - `recovery-cooldown` 表示原主节点恢复后至少稳定观察多久才允许重新成为主节点，默认 `60s`。
-- `recheck-window` 表示 SolidityNode 暂时不可用时，Scanner 固定重扫最近多少个 Head 区块，默认 `100`。该降级只保持发现能力，不代替 chain-server 的固化确认。
+- `block-history-size` 默认 `1000`，通常不必配置。成功推进进度时自动清理窗口外摘要；最早保留区块也不匹配时停止并报错。
 - API Key 允许为空，以支持自建 java-tron 节点。
 - API Key 属于访问凭证，但不是链上私钥；仍必须按敏感配置管理。
 - Scanner 不接收和保存私钥、助记词、签名密钥、`key_ref` 或交易签名材料。
@@ -236,7 +230,7 @@ nb:
 3. 业务代码只能调用 `TronNodeManager`，不能直接依赖 HTTP Client。
 4. 本地健康调度和扫块 Job 只负责触发，不复制节点选择逻辑。
 5. 节点全部不可用时必须失败关闭，不允许返回伪造高度、空区块或推进检查点。
-6. SolidityNode 暂时不可用时，扫块编排按 `recheck-window` 重扫最近的 Head 区块；`TronNodeManager` 不伪造固化高度。
+6. 共同区块查找固定使用一个 FullNode；中途失败结束本轮，下轮重新选择节点并完整查找，不混用主备结果。
 
 ## 11. 官方依据
 
@@ -248,3 +242,6 @@ nb:
 - [SolidityNode GetBlockByNum](https://developers.tron.network/reference/getblockbynum)
 - [TRON Blocks](https://developers.tron.network/docs/block)
 - [Exchange Wallet Integration](https://developers.tron.network/docs/exchangewallet-integrate-with-the-tron-network)
+
+
+阶段 6.5 扩展 `openBlockHeaderReader`：按扫描进度选择已同步到该高度的 FullNode，并固定为本次查找的读取节点。查找期间读取失败时将节点放入冷却期，下一轮可重新选择备用节点。Scanner 初始化和回退不依赖 SolidityNode。

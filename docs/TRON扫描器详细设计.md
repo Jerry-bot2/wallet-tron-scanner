@@ -59,8 +59,7 @@ flowchart LR
 
     NODE1[FullNode 主节点] --> NP[节点管理器]
     NODE2[FullNode 备用节点] --> NP
-    SOLID[SolidityNode] -->|固化高度| NP
-    SOLID -->|固化核验| CS
+    SOLID[SolidityNode] -->|固化核验| CS
     NP --> SCAN[Head 区块扫描服务]
     SNAPSHOT --> SCAN
     SCAN --> PARSER[TRX / TRC20 解析器]
@@ -86,7 +85,7 @@ flowchart LR
 - 维护可并发查询的内存地址索引。
 - 管理 TRON 节点连接和节点切换。
 - 顺序扫描 Head 区块并记录扫描高度。
-- 读取最新固化高度，只用于确定未固化区块的重扫范围。
+- 保存最近区块摘要；发现分叉后通过 FullNode 二分查找最近的共同区块。
 - 解析 TRX 和 TRC20 Transfer 事件。
 - 仅发送与平台地址有关的链上事实。
 - 在 Kafka Broker ACK 成功后推进扫描游标。
@@ -103,7 +102,7 @@ flowchart LR
 
 ## 4. 本地数据库设计
 
-首期只建立两张表。
+首期保存监控地址、Head 检查点和分叉恢复摘要三张表。
 
 ### 4.1 `tron_monitor_address`
 
@@ -152,10 +151,26 @@ UPDATE tron_scan_checkpoint
 SET last_block_number = :nextHeight,
     last_block_hash = :nextBlockHash
 WHERE chain_network = :network
-  AND last_block_number = :currentHeight;
+  AND last_block_number = :currentHeight
+  AND last_block_hash = :currentHash;
 ```
 
 影响行数为零表示另一个任务已经推进游标，当前任务停止并重新读取检查点。
+
+### 4.3 `tron_scanned_block`
+
+保存每个网络最近一段已扫描区块的高度和 Hash，默认保留 1000 条。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `chain_network` | `VARCHAR(32)` | 所属网络 |
+| `block_number` | `BIGINT` | 已处理高度；创世前边界允许为 -1 |
+| `block_hash` | `VARCHAR(128)` | 当时实际处理的 Hash；高度 -1 时为空字符串 |
+
+主键为 `(chain_network, block_number)`。Mapper 继承 `BaseMapper`，查询与清理条件统一写在数据库 Service 的 Lambda 中；所有条件操作都限定网络，按单个区块查询时同时限定高度，不使用单 ID 方法。
+
+最小高度仅是历史查找下界，不代表固化或安全点。每次区块处理成功后，摘要、检查点与窗口清理一起提交；分叉回退与旧分支摘要删除一起提交。完整流程见[阶段 6 第 9 节](阶段6-充值发现闭环设计.md#9-区块连续性与分叉回退)。
+
 
 ---
 
@@ -299,7 +314,7 @@ scanner 负责及时发现链上事实，`wallet-chain-server` 负责推进充�
 | 高度 | 所属位置 | 作用 |
 | --- | --- | --- |
 | `HEAD_BLOCK` | scanner 的 `tron_scan_checkpoint` | 已经完整扫描并成功上报的最新 Head 区块 |
-| 最新固化高度 | scanner 和 chain-server 各自从 SolidityNode 查询，不持久化为扫块游标 | scanner 确定未固化重扫范围；chain-server 判断 `CONFIRMING` 充值是否具备核验条件 |
+| 最新固化高度 | chain-server 从 SolidityNode 查询 | 判断 `CONFIRMING` 充值是否具备核验条件 |
 
 最新固化高度是 TRON 网络水位，不是 scanner 的第二个顺序扫块游标，因此首期不需要 `CONFIRMED_BLOCK` 检查点。
 
@@ -309,49 +324,41 @@ scanner 负责及时发现链上事实，`wallet-chain-server` 负责推进充�
 
 生产环境不能静默使用当前最新高度，否则配置错误可能跳过应扫描区块；也不能默认从创世块开始，避免无意义地扫描全部历史。
 
-检查点一旦存在，后续启动忽略 `start-block-height`，从数据库中最后成功处理高度的下一块继续。
+初始化时读取 FullNode 的起点前一区块，保存检查点和初始摘要；起点为 0 时用 -1 哨兵，不必等待固化。后续启动检查配套摘要和末块 Hash，再继续扫描。分叉时在保留历史中查找最近共同区块；旧版本缺少摘要时按阶段 6 迁移步骤安排一次初始化回放。
 
 ### 7.3 scanner 单区块处理顺序
 
 ```text
 读取本地 HEAD_BLOCK 高度 H
+→ 核对已扫描末块 Hash
 → 查询 FullNode 最新 Head 高度 T
 → 如果 H >= T，本轮顺序扫描结束
 → 获取 H + 1 区块
 → 校验区块高度、Hash 和时间
+→ 校验 parentBlockId 等于检查点的 lastBlockHash
+→ 不一致时二分查找最近共同区块并回退，下轮从该点后一块重扫
 → 等待区块内全部交易解析完成
 → 提取进入平台地址的 TRX/TRC20 事件
 → 有充值事件时向 Kafka 发送区块充值事件
 → Kafka Broker ACK 成功
-→ 条件更新本地 HEAD_BLOCK 为 H + 1
+→ 在一个手动短事务中保存摘要、条件更新本地 HEAD_BLOCK 为 H + 1、清理窗口外摘要
 → 继续处理下一块
 ```
 
-没有命中平台地址的区块可以直接推进本地游标。区块内交易可以在内存中并行解析，但必须等待所有任务完成并汇总结果，禁止把任务丢进线程池后直接推进区块高度。
+没有命中平台地址的区块不发送 Kafka，仍需原子保存摘要和本地游标。区块内交易可以在内存中并行解析，但必须等待所有任务完成并汇总结果，禁止把任务丢进线程池后直接推进区块高度。
 
-### 7.4 未固化区块重复检查
+### 7.4 区块连续性与共同区块查找
 
-Head 区块可能在固化前发生分叉。只按高度向前扫描会遗漏同一高度上的替换区块，因此每轮任务完成顺序追赶后，还要重新扫描当前未固化窗口：
+1. 每轮比较末块 Hash，每块比较父 Hash，正常时继续顺序扫描。
+2. 发现不同后，固定一个 FullNode，在本地保留历史中二分查找最近共同区块。
+3. 返回前复查末块和分叉边界，查找期间链变化或节点失败就结束本轮重新查找。
+4. 短事务回退检查点、删除共同区块之后的摘要；下轮从共同区块的下一块重扫。
+5. 每个网络默认保留最近 `blockHistorySize=1000` 条摘要，在推进进度的同一事务中清理旧记录。
+6. 超出保留历史或摘要缺失时停止并报错，不猜测回退位置，不自动回到配置起点。
 
-```text
-查询最新固化高度 S
-→ 从 max(S + 1, HEAD_BLOCK - recheckWindow + 1) 开始
-→ 重新扫描到当前 HEAD_BLOCK
-→ 重复提交发现事实
-```
+Scanner 不读取固化高度进行分叉恢复。chain-server 继续核验充值固化结果。节点落后、超时或空响应只表示暂时无法读取，不能当作分叉；停机后仍从数据库进度追赶。
 
-链服务使用 `txId + eventIndex` 幂等处理重复发现。这个窗口只覆盖尚未固化的少量区块，不需要保存全部区块历史。
-
-SolidityNode 暂时不可用时，Scanner 不伪造固化高度，也不停止 Head 新区块发现，而是降级为重扫最近 `recheckWindow` 个区块：
-
-```text
-从 max(0, HEAD_BLOCK - recheckWindow + 1) 开始
-→ 重新扫描到当前 HEAD_BLOCK
-```
-
-`recheckWindow` 默认为 `100`。这个降级只用于保持发现能力。chain-server 使用自己的 SolidityNode 连接独立确认；如果 chain-server 自身也无法完成固化核验，充值必须保持 `CONFIRMING`，不得上账。
-
-scanner 停机期间产生且已经固化的区块仍由 `HEAD_BLOCK` 顺序追赶处理，不能只扫描当前未固化窗口。
+详细例子、事务边界与迁移步骤见[阶段 6 设计](阶段6-充值发现闭环设计.md#9-区块连续性与分叉回退)。
 
 ### 7.5 chain-server 固化确认任务
 
@@ -462,7 +469,7 @@ scanner 只有收到 Kafka Broker ACK 后才推进本地区块检查点。发送
 
 ### 10.1 配置
 
-scanner 首期配置两个或三个 FullNode，用于 Head 扫描；同时至少配置一个 SolidityNode，用于查询最新固化高度和重新检查未固化窗口。`wallet-chain-server` 的确认任务也通过链节点适配器访问 SolidityNode。节点地址和凭证放在 Nacos 或环境变量，不写数据库。
+scanner 至少配置一个 FullNode，生产建议配置主备节点，用于 Head 扫描与共同区块查找；SolidityNode 不再是 Scanner 必需配置。`wallet-chain-server` 的确认任务也通过链节点适配器访问 SolidityNode。节点地址和凭证放在 Nacos 或环境变量，不写数据库。
 
 ### 10.2 健康检查
 
@@ -531,7 +538,6 @@ nb:
       chain-service-url: ${CHAIN_SERVICE_URL:http://127.0.0.1:8080}
       start-block-height: ${TRON_SCAN_START_BLOCK_HEIGHT}
       max-blocks-per-run: 100
-      recheck-window: 100
       expected-genesis-block-id: ${TRON_GENESIS_BLOCK_ID}
       node:
         connect-timeout: 3s
@@ -602,7 +608,7 @@ Job 只负责触发和记录执行结果，业务流程放在 Service。节点 S
 | 本地监控地址数量 | 判断地址同步是否完整 |
 | 地址同步游标 | 与链服务最大地址 ID 对比 |
 | 当前 Head 扫描高度 | scanner 当前处理位置 |
-| 节点最新固化高度 | 计算扫描延迟 |
+| FullNode 最新 Head 高度 | 与本地检查点比较，计算扫描延迟 |
 | 扫描高度差 | 主要告警指标 |
 | 最近成功扫块时间 | 判断任务是否卡住 |
 | 每区块解析交易数和命中数 | 观察解析结果 |
@@ -618,7 +624,7 @@ Job 只负责触发和记录执行结果，业务流程放在 Service。节点 S
 ### 阶段一：本地持久化基础
 
 1. 引入 `nb-mybatis-starter` 和 MySQL 驱动。
-2. 固化两张表的 DDL。
+2. 固化地址和检查点 DDL；阶段 6.5 增加区块摘要表。
 3. 编写实体、Mapper、Service 和检查点条件更新。
 
 ### 阶段二：地址同步闭环
@@ -646,7 +652,7 @@ Job 只负责触发和记录执行结果，业务流程放在 Service。节点 S
 
 1. 定义 Head 区块充值发现 Kafka 事件契约。
 2. 在链服务实现幂等创建 `CONFIRMING` 充值记录。
-3. 实现 Head 扫描编排、未固化窗口复查和游标推进。
+3. 实现 Head 扫描编排、摘要与检查点原子提交、二分查找共同区块和分叉重扫。
 4. 在链服务实现固化高度查询、交易核验和确认任务。
 5. 验证节点失败、分叉替换、上报超时、服务重启和重复区块。
 

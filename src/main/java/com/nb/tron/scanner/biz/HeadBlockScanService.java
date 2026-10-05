@@ -11,7 +11,6 @@ import com.nb.tron.scanner.model.TronDepositEvent;
 import com.nb.tron.scanner.mq.publisher.DepositDiscoveryPublisher;
 import com.nb.tron.scanner.node.TronNodeManager;
 import com.nb.tron.scanner.parser.TronBlockParser;
-import com.nb.tron.scanner.service.ITronScanCheckpointService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -22,10 +21,10 @@ import java.util.List;
  *
  * <p>每轮处理顺序：</p>
  * 1. 读取或初始化本地扫描检查点。<br>
- * 2. 查询 FullNode 当前 Head 高度。<br>
- * 3. 从检查点下一高度开始顺序读取和解析区块。<br>
+ * 2. 核对上次扫描的区块 Hash，查询 FullNode 当前 Head 高度。<br>
+ * 3. 读取下一高度的区块，连续性检查通过后解析充值。<br>
  * 4. 有充值时发送 Kafka，并等待 Broker ACK。<br>
- * 5. 当前区块完整处理成功后，条件更新数据库检查点。
+ * 5. 当前区块完整处理成功后，在短事务中保存摘要并推进检查点。
  *
  * <p>任一步失败时，异常直接结束本轮任务，后续区块不再处理。
  * 下一轮重新读取数据库检查点，从最后成功高度的下一块继续。</p>
@@ -47,9 +46,11 @@ public class HeadBlockScanService {
 
     private final TronBlockParser blockParser;
 
+    private final HeadBlockContinuityService blockContinuityService;
+
     private final DepositDiscoveryPublisher depositPublisher;
 
-    private final ITronScanCheckpointService checkpointService;
+    private final HeadScanProgressService progressService;
 
     /**
      * 顺序追赶当前 Head 高度
@@ -61,7 +62,10 @@ public class HeadBlockScanService {
      */
     public int scanBlocks() {
         requireIndexesReady();
-        TronScanCheckpoint checkpoint = loadCheckpoint();
+        TronScanCheckpoint checkpoint = progressService.loadCheckpoint();
+        // 每轮开始先核对上次扫描的末块，即使没有新区块也要检查。
+        // 例如保存 1010/H1010，节点已变为 1010/New1010，就查找共同区块并回退，下轮重扫。
+        blockContinuityService.checkCheckpoint(checkpoint);
         long headBlockHeight = nodeManager.getHeadHeight().blockHeight();
         int scannedCount = 0;
 
@@ -76,51 +80,17 @@ public class HeadBlockScanService {
     private TronScanCheckpoint scanNextBlock(TronScanCheckpoint checkpoint) {
         long nextBlockHeight = checkpoint.getLastBlockNumber() + 1;
         TronBlockData blockData = nodeManager.getBlockDataByHeight(nextBlockHeight);
+        // 一轮会连续扫多块，期间也可能分叉，所以每块都要检查能否接上当前进度。
+        // 例如刚扫完 1011/H1011，1012 的父 Hash 却是 New1011，就需要重新核对分叉。
+        // 正常情况只比较高度和父 Hash，不增加节点请求；接不上时才查找共同区块。
+        blockContinuityService.checkNextBlock(checkpoint, blockData);
         List<TronDepositEvent> deposits = blockParser.parse(blockData);
 
         if (!deposits.isEmpty()) {
             depositPublisher.publishAndWait(blockData, deposits);
         }
 
-        // 当前区块处理成功后，将扫描进度推进到本次请求的高度。
-        boolean advanced = checkpointService.advance(
-            checkpoint.getChainNetwork(),
-            checkpoint.getLastBlockNumber(),
-            nextBlockHeight,
-            blockData.blockId());
-        BizAssert.isTrue(advanced, ScannerBizErrCode.HEAD_SCAN_CHECKPOINT_CONFLICT);
-
-        return new TronScanCheckpoint()
-            .setChainNetwork(checkpoint.getChainNetwork())
-            .setLastBlockNumber(nextBlockHeight)
-            .setLastBlockHash(blockData.blockId());
-    }
-
-    /**
-     * 读取本次扫块使用的检查点。
-     *
-     * <p>检查点表示“最后一个已经完整处理成功的区块”：</p>
-     * 1. 数据库已有检查点时直接返回。例如最后成功处理到 99，本轮从 100 开始。<br>
-     * 2. 第一次扫描没有检查点时，根据 {@code startBlockHeight} 创建一条初始记录。<br>
-     *
-     * <p>例如配置 {@code startBlockHeight=100}，表示第一个需要扫描的是 100。
-     * Scanner 会先查询 99 的区块 Hash，将 99 保存为最后已处理位置，随后主流程从 100 开始。</p>
-     */
-    private TronScanCheckpoint loadCheckpoint() {
-        String chainNetwork = scannerProperties.getChainNetwork();
-        TronScanCheckpoint checkpoint = checkpointService.findByNetwork(chainNetwork);
-        if (checkpoint != null) {
-            return checkpoint;
-        }
-
-        long previousBlockHeight = scannerProperties.getStartBlockHeight() - 1;
-        String previousBlockHash = previousBlockHeight < 0
-            ? ""
-            : nodeManager.getBlockHeaderByHeight(previousBlockHeight).blockId();
-        return checkpointService.initializeIfAbsent(new TronScanCheckpoint()
-            .setChainNetwork(chainNetwork)
-            .setLastBlockNumber(previousBlockHeight)
-            .setLastBlockHash(previousBlockHash));
+        return progressService.advance(checkpoint, blockData);
     }
 
     private void requireIndexesReady() {

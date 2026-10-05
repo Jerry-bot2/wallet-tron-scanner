@@ -9,6 +9,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -37,10 +38,10 @@ class TronScannerPropertiesTest {
     }
 
     @Test
-    void shouldRequireFullNodeAndSolidityNode() {
+    void shouldRequireFullNode() {
         TronScannerProperties properties = validProperties();
         properties.getNode().setNodes(List.of(
-            node("full-primary", TronNodeRole.FULL_NODE, "http://127.0.0.1:8090")));
+            node("solid-primary", TronNodeRole.SOLIDITY_NODE, "http://127.0.0.1:8090")));
 
         assertThatThrownBy(properties::validate)
             .isInstanceOf(BizException.class)
@@ -57,6 +58,24 @@ class TronScannerPropertiesTest {
             .isInstanceOf(BizException.class)
             .extracting(exception -> ((BizException) exception).getErrorCode())
             .isEqualTo(ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
+    }
+
+    @Test
+    void shouldRejectHistoryWindowWithoutPredecessor() {
+        TronScannerProperties properties = validProperties();
+        properties.setBlockHistorySize(1);
+        assertThatThrownBy(properties::validate).isInstanceOf(BizException.class)
+            .extracting(e -> ((BizException) e).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
+    }
+
+    @Test
+    void shouldAcceptOnlyFullNodeAndDefaultHistoryWindow() {
+        TronScannerProperties properties = validProperties();
+        properties.getNode().setNodes(List.of(
+            node("full", TronNodeRole.FULL_NODE, "http://127.0.0.1:8090")));
+        assertThatNoException().isThrownBy(properties::validate);
+        assertThat(properties.getBlockHistorySize()).isEqualTo(1000);
     }
 
     private TronScannerProperties validProperties() {

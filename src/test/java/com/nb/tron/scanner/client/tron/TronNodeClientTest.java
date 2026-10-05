@@ -20,6 +20,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -91,6 +92,50 @@ class TronNodeClientTest {
         assertThat(blockData.transactions()).hasSize(1);
         assertThat(blockData.transactions().getFirst().rawJson()).contains("TransferContract");
         assertThat(blockData.receipts().get("tx-1").rawJson()).contains("\"log\":[]");
+    }
+
+    @Test
+    void shouldRejectBlockChangedWhileReadingReceiptsWithSameTransactionId() {
+        AtomicReference<String> blockId = new AtomicReference<>("block-100-old");
+        AtomicInteger blockReads = new AtomicInteger();
+        String transaction = """
+            {"txID":"tx-1","raw_data":{"contract":[{"type":"TransferContract"}]}}
+            """;
+        server.createContext("/wallet/getblockbynum", exchange -> {
+            blockReads.incrementAndGet();
+            respond(exchange, 200, blockJson(100L, blockId.get(), "block-99", transaction));
+        });
+        server.createContext("/wallet/gettransactioninfobyblocknum", exchange -> {
+            // 同一交易在新区块中重新打包，交易 ID 和高度都相同，仅核对回执集合无法识别。
+            blockId.set("block-100-new");
+            respond(exchange, 200, "[{\"id\":\"tx-1\",\"blockNumber\":100,\"log\":[]}]");
+        });
+
+        assertThatThrownBy(() -> nodeClient.getBlockDataByHeight(
+            endpoint("full-primary", TronNodeRole.FULL_NODE, null), 100L))
+            .isInstanceOf(BizException.class)
+            .extracting(exception -> ((BizException) exception).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
+        assertThat(blockReads.get()).isEqualTo(2);
+    }
+
+    @Test
+    void shouldRejectBlockWhenHashRecheckCannotBeCompleted() {
+        AtomicInteger blockReads = new AtomicInteger();
+        server.createContext("/wallet/getblockbynum", exchange -> {
+            if (blockReads.incrementAndGet() == 1) {
+                respond(exchange, 200, blockJson(100L, "block-100", "block-99", ""));
+                return;
+            }
+            respond(exchange, 503, "{}");
+        });
+        server.createContext("/wallet/gettransactioninfobyblocknum", exchange -> respond(exchange, 200, "[]"));
+
+        assertThatThrownBy(() -> nodeClient.getBlockDataByHeight(
+            endpoint("full-primary", TronNodeRole.FULL_NODE, null), 100L))
+            .isInstanceOf(BizException.class)
+            .extracting(exception -> ((BizException) exception).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.TRON_NODE_REMOTE_ERROR);
     }
 
     @Test

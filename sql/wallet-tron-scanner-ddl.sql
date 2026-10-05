@@ -1,6 +1,6 @@
 -- wallet-tron-scanner 首版建表脚本
 -- 数据库基线：MySQL 8.0 / InnoDB / UTC
--- scanner 数据库只保存监控地址本地索引和 Head 扫块检查点。
+-- scanner 数据库保存监控地址、Head 扫块检查点和分叉恢复所需的区块摘要。
 
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';
@@ -23,3 +23,10 @@ CREATE TABLE `tron_scan_checkpoint` (
     `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '最近推进时间，UTC',
     PRIMARY KEY (`chain_network`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='TRON Head扫块检查点';
+
+CREATE TABLE `tron_scanned_block` (
+    `chain_network` VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'TRON网络',
+    `block_number` BIGINT NOT NULL COMMENT '已扫描区块高度；初始创世边界允许为-1',
+    `block_hash` VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '当时实际处理的区块Hash；高度-1时为空字符串',
+    PRIMARY KEY (`chain_network`, `block_number`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='TRON最近已扫描区块摘要：用于分叉时查找共同区块，不代表固化状态';

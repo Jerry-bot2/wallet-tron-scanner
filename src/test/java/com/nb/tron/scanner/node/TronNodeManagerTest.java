@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -305,6 +306,58 @@ class TronNodeManagerTest {
             .isInstanceOf(BizException.class)
             .extracting(exception -> ((BizException) exception).getErrorCode())
             .isEqualTo(ScannerBizErrCode.TRON_NODE_UNAVAILABLE);
+    }
+
+    @Test
+    void shouldKeepSameNodeThroughoutAncestorSearch() {
+        TronNodeEndpointProperties primary = endpoint("full-primary", TronNodeRole.FULL_NODE, 1);
+        TronNodeEndpointProperties backup = endpoint("full-backup", TronNodeRole.FULL_NODE, 2);
+        scannerProperties.getNode().setNodes(List.of(primary, backup));
+        when(nodeHealthService.getNodeStates()).thenReturn(List.of(
+            healthyState(primary, 100L, Instant.now().minusSeconds(120)),
+            healthyState(backup, 100L, Instant.now().minusSeconds(120))));
+        when(nodeClient.getBlockHeaderByHeight(primary, 90L)).thenReturn(nodeHeight(primary, 90L));
+        when(nodeClient.getBlockHeaderByHeight(primary, 95L)).thenReturn(nodeHeight(primary, 95L));
+
+        TronBlockHeaderReader reader = nodeManager.openBlockHeaderReader(100L);
+        reader.getBlockHeaderByHeight(90L);
+        nodeManager.switchFullNodeForBlock(primary.getCode(), 100L);
+        reader.getBlockHeaderByHeight(95L);
+
+        verify(nodeClient).getBlockHeaderByHeight(primary, 90L);
+        verify(nodeClient).getBlockHeaderByHeight(primary, 95L);
+        verify(nodeClient, never()).getBlockHeaderByHeight(backup, 95L);
+    }
+
+    @Test
+    void shouldEndFailedSearchAndUseBackupForNextSearch() {
+        TronNodeEndpointProperties primary = endpoint("full-primary", TronNodeRole.FULL_NODE, 1);
+        TronNodeEndpointProperties backup = endpoint("full-backup", TronNodeRole.FULL_NODE, 2);
+        scannerProperties.getNode().setNodes(List.of(primary, backup));
+        when(nodeHealthService.getNodeStates()).thenReturn(List.of(
+            healthyState(primary, 100L, Instant.now().minusSeconds(120)),
+            healthyState(backup, 100L, Instant.now().minusSeconds(120))));
+        when(nodeClient.getBlockHeaderByHeight(primary, 90L))
+            .thenThrow(BizException.of(ScannerBizErrCode.TRON_NODE_TIMEOUT));
+        when(nodeClient.getBlockHeaderByHeight(backup, 90L)).thenReturn(nodeHeight(backup, 90L));
+
+        TronBlockHeaderReader reader = nodeManager.openBlockHeaderReader(100L);
+        assertThatThrownBy(() -> reader.getBlockHeaderByHeight(90L)).isInstanceOf(BizException.class);
+        verify(nodeClient, never()).getBlockHeaderByHeight(backup, 90L);
+        assertThat(nodeManager.openBlockHeaderReader(100L).getBlockHeaderByHeight(90L).nodeCode())
+            .isEqualTo(backup.getCode());
+    }
+
+    @Test
+    void shouldNotStartAncestorSearchOnNodeBehindCheckpoint() {
+        TronNodeEndpointProperties primary = endpoint("full-primary", TronNodeRole.FULL_NODE, 1);
+        scannerProperties.getNode().setNodes(List.of(primary));
+        when(nodeHealthService.getNodeStates()).thenReturn(List.of(
+            healthyState(primary, 99L, Instant.now().minusSeconds(120))));
+        assertThatThrownBy(() -> nodeManager.openBlockHeaderReader(100L))
+            .isInstanceOf(BizException.class)
+            .extracting(e -> ((BizException) e).getErrorCode()).isEqualTo(ScannerBizErrCode.TRON_NODE_UNAVAILABLE);
+        verifyNoInteractions(nodeClient);
     }
 
     private TronNodeEndpointProperties endpoint(String code, TronNodeRole role, int priority) {

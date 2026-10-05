@@ -14,7 +14,8 @@
 
 ```text
 getHeadHeight()                  查询最新 Head 高度
-getSolidHeight()                 查询最新固化高度
+getSolidHeight()                 可选固化高度能力，Head 扫描不使用
+openBlockHeaderReader(height)    为共同区块查找固定一个 FullNode
 getBlockDataByHeight(height)     读取指定高度的区块、交易和回执
 ```
 
@@ -30,7 +31,7 @@ getBlockDataByHeight(height)     读取指定高度的区块、交易和回执
 ### SolidityNode
 
 - 查询最新固化高度。
-- 帮助 Scanner 确定未固化区块的重复检查范围。
+- 保留为可选节点能力；Scanner 的 Head 扫描与分叉回退不依赖它。
 - 不替代 FullNode 扫描 Head，也不负责推进充值到账状态。
 
 ## 三、主备切换时间线
@@ -63,3 +64,7 @@ getBlockDataByHeight(height)     读取指定高度的区块、交易和回执
 ```
 
 读取指定区块时，节点最新高度必须大于或等于请求高度。读取区块和交易回执必须使用同一个 FullNode，禁止混合两个节点的未固化数据。
+
+## 六、分叉查找时的区别
+
+普通区块读取失败可以即时切换一次备用节点。共同区块查找需要固定一个 FullNode：中途失败就结束本轮，下一轮重新选择节点，从头查找，避免把不同分支的数据混在一起。
