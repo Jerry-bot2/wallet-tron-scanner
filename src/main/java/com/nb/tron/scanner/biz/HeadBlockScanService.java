@@ -55,13 +55,23 @@ public class HeadBlockScanService {
     /**
      * 顺序追赶当前 Head 高度
      *
-     * <p>例如 100 已处理成功、101 发送失败，数据库进度停留在 100。
-     * 下次调度或服务重启后从 101 重试，不会跳到 102。</p>
+     * <p>
+     * 例如 100 已处理成功、101 发送失败，数据库进度停留在 100。
+     * 下次调度或服务重启后从 101 重试，不会跳到 102。
+     * </p>
      *
+     * <p>扫描流程</p>
+     * (1) 第一次启动事务保存:检查点和区块摘要
+     * (2) 边界检查: 确保没有分叉。出现分叉调整位置同时结束本轮等待下一次扫描
+     * (3) 区块扫描: 读取区块 -> 检查区块父hash是否和checkpoint一致 -> 解析充值 -> 有充值发送Kafka，等待ack -> 保存区块摘要，同时推进检查点
      * @return 本轮成功处理并推进检查点的区块数量
      */
     public int scanBlocks() {
         requireIndexesReady();
+
+        //第二种情况: 1010 / H1010
+        // blockContinuityService.checkCheckpoint 本地和链路上保存的hash不同，此时出发二分查找。比如找到1007hash一致
+        // 事务执行: 检查点回退：1010 → 1007 ; 删除摘要：1008～1010；本轮结束 下一轮从1008开始扫描
         TronScanCheckpoint checkpoint = progressService.loadCheckpoint();
         // 每轮开始先核对上次扫描的末块，即使没有新区块也要检查。
         // 例如保存 1010/H1010，节点已变为 1010/New1010，就查找共同区块并回退，下轮重扫。
@@ -77,6 +87,14 @@ public class HeadBlockScanService {
         return scannedCount;
     }
 
+    /**
+     * <p>比如扫描 1000 </p>
+     * (1) 读取 1000 区块和交易，得到 H1000
+     * (2) 读取 1000 的交易执行回执
+     * (3) 再读 1000，确认仍然是 H1000
+     * (4) 检查 1000 的父 Hash 是否等于 H999(也就是 checkpoint)
+     * (5) 解析充值 ->  有充值就发送 Kafka，等待 ACK -> 成功保存 1000 摘要，将检查点推进到 1000
+     */
     private TronScanCheckpoint scanNextBlock(TronScanCheckpoint checkpoint) {
         long nextBlockHeight = checkpoint.getLastBlockNumber() + 1;
         TronBlockData blockData = nodeManager.getBlockDataByHeight(nextBlockHeight);

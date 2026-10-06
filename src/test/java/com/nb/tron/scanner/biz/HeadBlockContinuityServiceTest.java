@@ -133,9 +133,22 @@ class HeadBlockContinuityServiceTest {
     @Test
     void shouldNotChangeDatabaseWhenAncestorLookupFails() {
         when(ancestorFinder.findCommonAncestor(checkpoint))
-            .thenThrow(BizException.of(ScannerBizErrCode.HEAD_SCAN_COMMON_ANCESTOR_NOT_FOUND));
+            .thenThrow(BizException.of(ScannerBizErrCode.TRON_NODE_TIMEOUT));
         assertThatThrownBy(() -> continuity.checkCheckpoint(checkpoint)).isInstanceOf(BizException.class);
         verifyNoInteractions(progressService);
+    }
+
+    @Test
+    void shouldRestartOriginalRangeWhenNoRetainedBlockMatches() {
+        when(ancestorFinder.findCommonAncestor(checkpoint))
+            .thenThrow(BizException.of(ScannerBizErrCode.HEAD_SCAN_COMMON_ANCESTOR_NOT_FOUND));
+        TronScanCheckpoint restarted = new TronScanCheckpoint().setChainNetwork("MAINNET")
+            .setLastBlockNumber(99L).setLastBlockHash("new99");
+        when(progressService.restartFromInitialBoundary(checkpoint)).thenReturn(restarted);
+
+        assertThatThrownBy(() -> continuity.checkCheckpoint(checkpoint)).isInstanceOf(BizException.class)
+            .extracting(e -> ((BizException) e).getErrorCode()).isEqualTo(ScannerBizErrCode.HEAD_SCAN_FORK_DETECTED);
+        verify(progressService).restartFromInitialBoundary(checkpoint);
     }
 
     @Test

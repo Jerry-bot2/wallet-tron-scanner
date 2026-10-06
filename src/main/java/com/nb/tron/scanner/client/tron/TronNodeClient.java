@@ -20,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import static com.nb.tron.scanner.constant.TronConstants.GENESIS_BLOCK_HEIGHT;
 import static com.nb.tron.scanner.constant.TronHttpConstants.EMPTY_REQUEST;
 import static com.nb.tron.scanner.constant.TronHttpConstants.FULL_BLOCK_BY_NUM_PATH;
 import static com.nb.tron.scanner.constant.TronHttpConstants.FULL_NOW_BLOCK_PATH;
@@ -165,22 +166,17 @@ public class TronNodeClient {
         }
 
         JsonNode rawHeader = response.path("block_header").path("raw_data");
-        JsonNode heightNode = rawHeader.path("number");
-        JsonNode timestampNode = rawHeader.path("timestamp");
         String blockId = response.path("blockID").textValue();
         String parentBlockId = rawHeader.path("parentHash").textValue();
 
-        boolean validHeader = StringUtils.hasText(blockId)
-            && heightNode.isIntegralNumber()
-            && heightNode.canConvertToLong()
-            && timestampNode.isIntegralNumber()
-            && timestampNode.canConvertToLong();
-        if (!validHeader) {
+        if (!rawHeader.isObject() || !StringUtils.hasText(blockId)) {
             throw BizException.of(ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
         }
 
-        long blockHeight = heightNode.longValue();
-        long blockTimestamp = timestampNode.longValue();
+        // TRON 的创世区块可能省略值为 0 的 number 和 timestamp；其他高度仍要求字段完整。
+        boolean genesisBlock = requestedHeight != null && requestedHeight == GENESIS_BLOCK_HEIGHT;
+        long blockHeight = readHeaderNumber(rawHeader, "number", genesisBlock);
+        long blockTimestamp = readHeaderNumber(rawHeader, "timestamp", genesisBlock);
         if (blockHeight < 0
             || blockTimestamp < 0
             || (requestedHeight != null && blockHeight != requestedHeight)) {
@@ -195,6 +191,17 @@ public class TronNodeClient {
             blockId,
             parentBlockId,
             Instant.ofEpochMilli(blockTimestamp));
+    }
+
+    private long readHeaderNumber(JsonNode header, String fieldName, boolean genesisBlock) {
+        JsonNode value = header.path(fieldName);
+        if (genesisBlock && value.isMissingNode()) {
+            return 0L;
+        }
+        if (!value.isIntegralNumber() || !value.canConvertToLong()) {
+            throw BizException.of(ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
+        }
+        return value.longValue();
     }
 
     private List<TronTransaction> readTransactions(JsonNode transactionNodes) {

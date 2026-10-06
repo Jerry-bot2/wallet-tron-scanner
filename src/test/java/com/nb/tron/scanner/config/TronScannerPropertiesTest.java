@@ -75,7 +75,7 @@ class TronScannerPropertiesTest {
         properties.getNode().setNodes(List.of(
             node("full", TronNodeRole.FULL_NODE, "http://127.0.0.1:8090")));
         assertThatNoException().isThrownBy(properties::validate);
-        assertThat(properties.getBlockHistorySize()).isEqualTo(1000);
+        assertThat(properties.getBlockHistorySize()).isEqualTo(10_000);
     }
 
     private TronScannerProperties validProperties() {

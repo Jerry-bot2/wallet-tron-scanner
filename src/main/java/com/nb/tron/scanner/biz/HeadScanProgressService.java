@@ -3,6 +3,7 @@ package com.nb.tron.scanner.biz;
 import com.nb.core.exception.BizAssert;
 import com.nb.mybatis.transaction.TransactionSupport;
 import com.nb.tron.scanner.config.TronScannerProperties;
+import com.nb.tron.scanner.constant.TronConstants;
 import com.nb.tron.scanner.entity.TronScanCheckpoint;
 import com.nb.tron.scanner.entity.TronScannedBlock;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
@@ -88,7 +89,7 @@ public class HeadScanProgressService {
      * <p>1. 锁定检查点，确认数据库进度没有改变。<br>
      * 2. 保存本次处理完成的区块摘要。<br>
      * 3. 将检查点推进到本次区块的高度和 Hash。<br>
-     * 4. 清理保留范围之外的旧摘要。</p>
+     * 4. 压缩近期窗口之外的旧摘要，保留历史回退用的记录。</p>
      * <p>例如当前为 1010，本次处理完成 1011：一起保存 1011 的摘要和检查点。
      * 四步在同一个手动事务中执行，任一步失败全部回滚；提交成功才返回新进度。</p>
      *
@@ -107,9 +108,9 @@ public class HeadScanProgressService {
             scannedBlockService.saveBlock(toSummary(nextCheckpoint));
 
             // 3. 推进扫描检查点
-            advanceCheckpoint(currentCheckpoint, nextCheckpoint);
+            updateCheckpoint(currentCheckpoint, nextCheckpoint);
 
-            // 4. 清理旧摘要
+            // 4. 压缩旧摘要，保留历史查找起点
             pruneHistory(nextCheckpoint);
             return nextCheckpoint;
         });
@@ -129,7 +130,7 @@ public class HeadScanProgressService {
     /**
      * 按原高度和原 Hash 更新检查点；更新失败则抛出异常，让整个事务回滚。
      */
-    private void advanceCheckpoint(TronScanCheckpoint currentCheckpoint, TronScanCheckpoint nextCheckpoint) {
+    private void updateCheckpoint(TronScanCheckpoint currentCheckpoint, TronScanCheckpoint nextCheckpoint) {
         boolean advanced = checkpointService.advance(currentCheckpoint.getChainNetwork(),
             currentCheckpoint.getLastBlockNumber(), currentCheckpoint.getLastBlockHash(),
             nextCheckpoint.getLastBlockNumber(), nextCheckpoint.getLastBlockHash());
@@ -137,19 +138,27 @@ public class HeadScanProgressService {
     }
 
     /**
-     * 正常扫块后删除太旧的摘要，只保留最近 blockHistorySize 条，默认 1000 条。
-     * 即使没有分叉也要执行，避免摘要表不断增长。
+     * 最近 blockHistorySize 条连续保留，默认 1 万条；更早的历史每 1000 块留一条。
+     * 最初起点始终保留，分叉超出近期窗口时仍可自动回退。
      * <pre>
-     * 扫描到 10000，保留最近 1000 条：
-     * 保留：9001～10000
-     * 删除：9001 之前的摘要
+     * 从 100 开始，扫描到 20000，近期窗口为 10000 条：
+     * 连续保留：10001～20000
+     * 更早保留：99（初始起点）、1000、2000、……、10000
+     * 删除：更早历史中不属于上述保留点的摘要
      * </pre>
-     * <p>这里删除太旧的记录；分叉回退时，{@link #rewind} 删除共同区块之后的旧分支记录。
+     * <p>这里压缩旧历史；分叉回退时，{@link #rewind} 删除共同区块之后的旧分支记录。
      * 清理与本次区块提交在同一个手动事务中完成，任一步失败全部回滚。</p>
      */
     private void pruneHistory(TronScanCheckpoint checkpoint) {
         long oldestHeight = Math.max(checkpoint.getLastBlockNumber() - scannerProperties.getBlockHistorySize() + 1, -1);
-        scannedBlockService.removeBefore(checkpoint.getChainNetwork(), oldestHeight);
+        TronScannedBlock initialBoundary = scannedBlockService.findOldestBlock(checkpoint.getChainNetwork());
+        if (initialBoundary == null || initialBoundary.getBlockNumber() >= oldestHeight) {
+            return;
+        }
+
+        scannedBlockService.compactBefore(checkpoint.getChainNetwork(), oldestHeight,
+            initialBoundary.getBlockNumber(),
+            TronConstants.BLOCK_HISTORY_ANCHOR_INTERVAL);
     }
 
     /**
@@ -173,6 +182,40 @@ public class HeadScanProgressService {
 
             // 3. 删除共同区块之后的摘要，没有记录时正常结束
             scannedBlockService.removeAfter(checkpoint.getChainNetwork(), commonAncestor.getBlockNumber());
+        });
+    }
+
+    /**
+     * 连最早保存的边界都被替换时，自动重放已记录的扫描范围。
+     *
+     * <p>1. 读取最早摘要的高度，再从 FullNode 读取该高度的新 Hash。<br>
+     * 2. 一个事务替换边界 Hash、回退检查点、删除之后的旧分支摘要。<br>
+     * 3. 本轮结束，下一轮从原始范围的第一块重新扫描；不使用当前配置重定义起点。</p>
+     * <p>例如从 100 开始，初始边界 99 也被替换：保存新的 99 Hash，退到 99，
+     * 后续从 100 重放。有充值仍发送 Kafka，由链服务幂等接收并确认。</p>
+     *
+     * @return 重放的起始边界，供任务结束时记录日志
+     */
+    public TronScanCheckpoint restartFromInitialBoundary(TronScanCheckpoint checkpoint) {
+        TronScannedBlock initialBoundary = scannedBlockService.findOldestBlock(checkpoint.getChainNetwork());
+        BizAssert.notNull(initialBoundary, ScannerBizErrCode.HEAD_SCAN_HISTORY_INVALID);
+        String currentHash = nodeManager.getBlockHeaderByHeight(initialBoundary.getBlockNumber()).blockId();
+        TronScanCheckpoint restarted = new TronScanCheckpoint()
+            .setChainNetwork(initialBoundary.getChainNetwork())
+            .setLastBlockNumber(initialBoundary.getBlockNumber())
+            .setLastBlockHash(currentHash);
+
+        return transactionSupport.executeWithResult(() -> {
+            // 1. 确认当前进度和原始边界仍有效
+            lockCheckpoint(checkpoint);
+            requireStoredBlock(checkpoint, initialBoundary);
+
+            // 2. 以新分支的边界作为重放起点，更新检查点并删除后续旧摘要
+            boolean replaced = scannedBlockService.replaceBoundaryHash(initialBoundary, currentHash);
+            BizAssert.isTrue(replaced, ScannerBizErrCode.HEAD_SCAN_CHECKPOINT_CONFLICT);
+            updateCheckpoint(checkpoint, restarted);
+            scannedBlockService.removeAfter(checkpoint.getChainNetwork(), initialBoundary.getBlockNumber());
+            return restarted;
         });
     }
 

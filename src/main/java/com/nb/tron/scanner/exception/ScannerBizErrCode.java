@@ -58,7 +58,7 @@ public enum ScannerBizErrCode implements IBizErrCode {
     HEAD_SCAN_FORK_DETECTED(916003, "检测到 Head 分叉，当前区块高度 {0}，检查点已回退至 {1}"),
 
     HEAD_SCAN_HISTORY_INVALID(916004, "区块摘要缺失或与检查点不一致，请检查数据或完成旧版本初始化回放"),
-    HEAD_SCAN_COMMON_ANCESTOR_NOT_FOUND(916005, "保留范围内找不到共同区块，停止扫描，请检查节点或扩展历史回放"),
+    HEAD_SCAN_COMMON_ANCESTOR_NOT_FOUND(916005, "初始扫描边界与节点不一致，需要从原始边界重放"),
     HEAD_SCAN_CHAIN_CHANGED(916006, "查找共同区块期间链发生变化，本轮结束，下轮重新查找"),
 
     /// ////////////////////////////////////// Scanner 内部错误 /////////////////////////////////////////

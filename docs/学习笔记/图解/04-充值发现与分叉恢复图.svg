@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1590" viewBox="0 0 1440 1590">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto"><path d="M0 0v6l9-3z" fill="#53627a"/></marker>
+    <style>
+      text{font-family:"PingFang SC","Microsoft YaHei",sans-serif;fill:#172033}
+      .title{font-size:32px;font-weight:700}.subtitle{font-size:18px;fill:#607089}
+      .heading{font-size:21px;font-weight:700}.body{font-size:17px}.small{font-size:15px;fill:#607089}
+      .mono{font-family:"SFMono-Regular","Menlo",monospace;font-size:16px}
+      .card{fill:#fff;stroke:#d9e2ef;stroke-width:2}.blue{fill:#eaf2ff;stroke:#5b8def;stroke-width:2}
+      .green{fill:#eaf7ef;stroke:#50a66d;stroke-width:2}.yellow{fill:#fff6df;stroke:#efb94d;stroke-width:2}
+      .red{fill:#ffedf0;stroke:#da6b7a;stroke-width:2}.purple{fill:#f2ecff;stroke:#8f6bd4;stroke-width:2}
+      .flow{stroke:#53627a;stroke-width:3;fill:none;marker-end:url(#arrow)}
+      .line{stroke:#d9e2ef;stroke-width:2}
+    </style>
+  </defs>
+  <rect width="1440" height="1590" fill="#f4f7fc"/>
+  <text x="45" y="62" class="title">充值发现与分叉恢复：发送成功才推进，发现分叉就回退重扫</text>
+  <text x="45" y="97" class="subtitle">Scanner 读取 FullNode；chain-server 负责充值固化确认，并通知出入金服务。</text>
+
+  <text x="45" y="150" class="heading">一、每轮正常扫描 · 从数据库记录的 H 开始</text>
+  <rect x="45" y="177" width="300" height="160" rx="16" class="blue"/>
+  <text x="66" y="214" class="heading">① 检查上轮末块</text>
+  <text x="66" y="248" class="body">数据库：H / Hash</text>
+  <text x="66" y="280" class="body">节点：同一高度的 Hash</text>
+  <text x="66" y="311" class="small">没有新区块也要检查是否被替换</text>
+
+  <rect x="395" y="177" width="300" height="160" rx="16" class="blue"/>
+  <text x="416" y="214" class="heading">② 读取 H+1</text>
+  <text x="416" y="248" class="body">第一次：区块与交易</text>
+  <text x="416" y="280" class="body">第二次：执行回执与日志</text>
+  <text x="416" y="311" class="small">第三次：复核本块 Hash 未变化</text>
+
+  <rect x="745" y="177" width="300" height="160" rx="16" class="yellow"/>
+  <text x="766" y="214" class="heading">③ 检查连续性并解析</text>
+  <text x="766" y="248" class="body">高度必须为 H+1</text>
+  <text x="766" y="280" class="body">父 Hash 必须等于 H 的 Hash</text>
+  <text x="766" y="311" class="small">接得上，才解析 TRX / TRC20</text>
+
+  <rect x="1095" y="177" width="300" height="160" rx="16" class="green"/>
+  <text x="1116" y="214" class="heading">④ 发送并提交进度</text>
+  <text x="1116" y="248" class="body">Kafka 消息 → 等待 ACK</text>
+  <text x="1116" y="280" class="body">事务：保存摘要 + 推进进度</text>
+  <text x="1116" y="311" class="small">同时清理太旧的区块摘要</text>
+  <path d="M345 257H395" class="flow"/><path d="M695 257H745" class="flow"/><path d="M1045 257H1095" class="flow"/>
+  <text x="45" y="376" class="body">空块：不发 Kafka，直接提交摘要和进度。发送失败：保留原进度，下轮重新处理同一块。</text>
+
+  <text x="45" y="435" class="heading">二、分叉实例 · 已扫描到 1010，但节点替换了 1008～1010</text>
+  <rect x="45" y="462" width="660" height="524" rx="17" class="card"/>
+  <text x="70" y="502" class="heading">比较相同高度的 Hash</text>
+  <text x="70" y="542" class="small">高度</text><text x="206" y="542" class="small">本地已扫描摘要</text><text x="434" y="542" class="small">节点当前分支</text>
+  <line x1="70" y1="557" x2="680" y2="557" class="line"/>
+  <text x="70" y="590" class="mono">1000</text><text x="206" y="590" class="mono">H1000</text><text x="434" y="590" class="mono">H1000</text>
+  <text x="70" y="627" class="mono">…</text><text x="206" y="627" class="mono">…</text><text x="434" y="627" class="mono">…</text>
+  <rect x="64" y="643" width="622" height="48" rx="9" class="green"/>
+  <text x="78" y="675" class="mono">1007</text><text x="206" y="675" class="mono">H1007</text><text x="434" y="675" class="mono">H1007</text>
+  <text x="70" y="724" class="mono">1008</text><text x="206" y="724" class="mono">Old1008</text><text x="434" y="724" class="mono">New1008</text>
+  <text x="70" y="765" class="mono">1009</text><text x="206" y="765" class="mono">Old1009</text><text x="434" y="765" class="mono">New1009</text>
+  <text x="70" y="806" class="mono">1010</text><text x="206" y="806" class="mono">Old1010</text><text x="434" y="806" class="mono">New1010</text>
+  <line x1="70" y1="826" x2="680" y2="826" class="line"/>
+  <text x="70" y="862" class="body">1007 是最近的共同区块：两边仍然相同的最后一块。</text>
+  <text x="70" y="899" class="body">它由 Hash 比较找到，不代表固化或安全点。</text>
+  <text x="70" y="945" class="small">最早保留的记录只是查找下界，不能直接拿它当回退点。</text>
+
+  <rect x="735" y="462" width="660" height="524" rx="17" class="purple"/>
+  <text x="760" y="502" class="heading">固定一个 FullNode，二分找共同区块</text>
+  <text x="760" y="546" class="body">① 1010 不同，先确认最早的 1000 仍相同。</text>
+  <text x="760" y="586" class="body">② 二分比较中点，不逐块向前查询。</text>
+  <rect x="758" y="612" width="615" height="146" rx="10" class="card"/>
+  <text x="780" y="648" class="mono">1000～1010 → 比较 1005，相同 → 向右</text>
+  <text x="780" y="688" class="mono">1005～1010 → 比较 1007，相同 → 向右</text>
+  <text x="780" y="728" class="mono">1007～1010 → 比较 1008，不同 → 返回 1007</text>
+  <text x="760" y="801" class="body">③ 复查末块、共同块、共同块的下一块。</text>
+  <text x="760" y="843" class="body">④ 一个事务：进度退到 1007，删除 1008～1010。</text>
+  <text x="760" y="885" class="body">⑤ 正常结束本轮，下轮从 1008 重扫新分支。</text>
+  <text x="760" y="945" class="small">查找中节点失败或分支变化：停止本轮，不提交回退。</text>
+
+  <text x="45" y="1047" class="heading">三、保留范围与失败处理</text>
+  <rect x="45" y="1074" width="430" height="173" rx="16" class="blue"/>
+  <text x="67" y="1112" class="heading">默认连续保留最近 1 万条</text>
+  <text x="67" y="1150" class="body">更早历史：每 1000 块留一条</text>
+  <text x="67" y="1185" class="body">最初起点始终保留，旧记录不入内存</text>
+  <text x="67" y="1220" class="small">压缩旧历史，窗口外分叉仍能自动回退</text>
+  <rect x="505" y="1074" width="430" height="173" rx="16" class="yellow"/>
+  <text x="527" y="1112" class="heading">读到不一致数据</text>
+  <text x="527" y="1150" class="body">新块接不上，但末块仍正确</text>
+  <text x="527" y="1185" class="body">冷却异常节点，下轮换节点重读</text>
+  <text x="527" y="1220" class="small">不把节点异常当成必须回退的分叉</text>
+  <rect x="965" y="1074" width="430" height="173" rx="16" class="green"/>
+  <text x="987" y="1112" class="heading">共同区块超出近期窗口</text>
+  <text x="987" y="1150" class="body">实际共同块 8500，只留 8000 / 9000</text>
+  <text x="987" y="1185" class="body">8000 相同 → 自动回退，从 8001 重扫</text>
+  <text x="987" y="1220" class="small">最多额外重扫 999 块，不依赖人工改起点</text>
+  <text x="45" y="1279" class="body">初始边界也被替换：自动从数据库保存的原始起点重放；节点超时只延后重试，不触发全量重放。</text>
+
+  <text x="45" y="1310" class="heading">四、看代码的顺序</text>
+  <rect x="45" y="1337" width="1350" height="205" rx="17" class="card"/>
+  <text x="72" y="1377" class="mono">HeadBlockScanJob → HeadBlockScanService</text>
+  <text x="730" y="1377" class="body">任务入口与每轮扫块编排</text>
+  <text x="72" y="1418" class="mono">HeadBlockContinuityService → HeadBlockAncestorFinder</text>
+  <text x="730" y="1418" class="body">发现分叉、固定节点查找共同区块</text>
+  <text x="72" y="1459" class="mono">BinarySearch.findLastMatch</text>
+  <text x="730" y="1459" class="body">独立的二分算法，1000 条约 10 次中点比较</text>
+  <text x="72" y="1500" class="mono">HeadScanProgressService</text>
+  <text x="730" y="1500" class="body">手动事务：初始化、推进、回退、清理</text>
+</svg>

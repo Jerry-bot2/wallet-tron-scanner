@@ -1,6 +1,8 @@
 package com.nb.tron.scanner.client.tron;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nb.core.exception.BizException;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
@@ -14,12 +16,16 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -52,6 +58,56 @@ class TronNodeClientTest {
     @AfterEach
     void tearDown() {
         server.stop(0);
+    }
+
+    @Test
+    void shouldReadRealNileGenesisWithOmittedZeroFields() throws IOException {
+        String genesis;
+        try (InputStream input = getClass().getResourceAsStream("/samples/tron/nile-genesis-block.json")) {
+            assertThat(input).isNotNull();
+            genesis = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        server.createContext("/wallet/getblockbynum", exchange -> respond(exchange, 200, genesis));
+
+        TronNodeHeight block = nodeClient.getBlockHeaderByHeight(
+            endpoint("nile-full", TronNodeRole.FULL_NODE, null), 0);
+
+        assertThat(block.blockHeight()).isZero();
+        assertThat(block.blockTimestamp()).isEqualTo(Instant.EPOCH);
+        assertThat(block.blockId()).isEqualTo(
+            "0000000000000000d698d4192c56cb6be724a558448e2684802de4d6cd8690dc");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"number", "timestamp"})
+    void shouldRejectMissingHeaderFieldOutsideGenesis(String fieldName) throws IOException {
+        var mapper = new ObjectMapper();
+        var block = mapper.readTree(blockJson(100, "block-100", "block-99", ""));
+        ((ObjectNode) block.path("block_header").path("raw_data"))
+            .remove(fieldName);
+        server.createContext("/wallet/getblockbynum", exchange -> respond(exchange, 200, block.toString()));
+
+        assertThatThrownBy(() -> nodeClient.getBlockHeaderByHeight(
+            endpoint("full-primary", TronNodeRole.FULL_NODE, null), 100))
+            .isInstanceOf(BizException.class)
+            .extracting(e -> ((BizException) e).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"number", "timestamp"})
+    void shouldRejectExplicitNullHeaderFieldInGenesis(String fieldName) throws IOException {
+        var mapper = new ObjectMapper();
+        var block = mapper.readTree(blockJson(0, "block-0", "", ""));
+        ((ObjectNode) block.path("block_header").path("raw_data"))
+            .putNull(fieldName);
+        server.createContext("/wallet/getblockbynum", exchange -> respond(exchange, 200, block.toString()));
+
+        assertThatThrownBy(() -> nodeClient.getBlockHeaderByHeight(
+            endpoint("full-primary", TronNodeRole.FULL_NODE, null), 0))
+            .isInstanceOf(BizException.class)
+            .extracting(e -> ((BizException) e).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
     }
 
     @Test
