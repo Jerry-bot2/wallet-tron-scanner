@@ -28,15 +28,14 @@ class HeadBlockScanJobTest {
 
     @Test
     void shouldFinishRoundNormallyAfterSuccessfulRewind() {
-        when(scanService.scanBlocks()).thenThrow(
-            BizException.of(ScannerBizErrCode.HEAD_SCAN_FORK_DETECTED, 1010, 1008));
+        when(scanService.scanBlocks()).thenReturn(0);
 
         assertThat(scanJob.doExecute(null)).isZero();
     }
 
     @Test
     void shouldPropagateCheckpointFailure() {
-        BizException failure = BizException.of(ScannerBizErrCode.HEAD_SCAN_CHECKPOINT_CONFLICT);
+        BizException failure = BizException.of(ScannerBizErrCode.HEAD_SCAN_CHECKPOINT_SAVE_FAILED);
         when(scanService.scanBlocks()).thenThrow(failure);
 
         assertThatThrownBy(() -> scanJob.doExecute(null)).isSameAs(failure);

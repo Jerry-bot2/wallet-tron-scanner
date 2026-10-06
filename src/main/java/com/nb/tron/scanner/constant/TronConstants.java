@@ -23,11 +23,6 @@ public final class TronConstants {
      */
     public static final int BLOCK_HISTORY_CLEANUP_INTERVAL = 100;
 
-    /**
-     * 旧区块摘要每 1000 个高度保留一条，供超出近期窗口的分叉自动回退。
-     */
-    public static final int BLOCK_HISTORY_ANCHOR_INTERVAL = 1000;
-
     private TronConstants() {
     }
 }

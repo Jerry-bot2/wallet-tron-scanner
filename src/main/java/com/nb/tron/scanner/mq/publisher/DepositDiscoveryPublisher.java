@@ -42,11 +42,14 @@ public class DepositDiscoveryPublisher {
      * @param deposits  当前区块识别出的充值事实
      */
     public void publishAndWait(TronBlockData blockData, List<TronDepositEvent> deposits) {
+        // 1. 同一区块的充值合成一条消息，带上区块高度、Hash 和每笔充值的信息。
         ObservedBlockEvent blockEvent = toBlockEvent(blockData, deposits);
         try {
+            // 2. 发送后等待 Broker ACK；未确认成功时，调用方不能推进扫描进度。
             kafkaPublisher.publish(ChainKafkaTopics.DEPOSIT_DISCOVERED, blockEvent.messageKey(), blockEvent)
                 .get(scannerProperties.getKafkaAckTimeout().toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException exception) {
+            // 3. 任务线程被中断时保留中断标记；所有发送失败都向外抛出，结束本轮。
             Thread.currentThread().interrupt();
             throw publishFailed(blockData, exception);
         } catch (ExecutionException exception) {

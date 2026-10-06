@@ -43,7 +43,7 @@ wallet-bitcoin-scanner
 
 - 已同步的监控地址副本。
 - 地址同步游标。
-- Head 区块扫描游标。
+- Head 区块扫描游标和最近 2 万条连续区块摘要。
 
 平台地址、地址绑定、充值单、提现单、归集单仍由 `wallet-chain-server` 管理。扫描器本地数据丢失后可以通过链服务和链节点重建。
 
@@ -59,7 +59,7 @@ flowchart LR
 
     NODE1[FullNode 主节点] --> NP[节点管理器]
     NODE2[FullNode 备用节点] --> NP
-    SOLID[SolidityNode] -->|固化核验| CS
+    SOLID[SolidityNode] -->|充值固化核验| CS
     NP --> SCAN[Head 区块扫描服务]
     SNAPSHOT --> SCAN
     SCAN --> PARSER[TRX / TRC20 解析器]
@@ -130,36 +130,25 @@ CREATE TABLE `tron_monitor_address` (
 
 ### 4.2 `tron_scan_checkpoint`
 
-只保存 Head 区块扫描进度。
+保存每个网络最后完整处理的 Head 高度和 Hash。
 
 ```sql
 CREATE TABLE `tron_scan_checkpoint` (
     `chain_network` VARCHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT 'TRON网络，例如MAINNET、NILE',
     `last_block_number` BIGINT NOT NULL COMMENT '最后完整解析并成功上报的Head区块高度',
     `last_block_hash` VARCHAR(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL COMMENT '最后完整处理的Head区块Hash',
-    `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '最近推进时间，UTC',
+    `updated_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3) COMMENT '最近扫描进度变更时间，UTC',
     PRIMARY KEY (`chain_network`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='TRON Head扫块检查点';
 ```
 
 地址同步水位不再写入检查点表。scanner 从 `tron_monitor_address` 按当前网络查询最大的 `source_address_id`，在本地地址全部加载到内存后将该值作为 ACK 水位。
 
-检查点更新必须使用原游标条件：
-
-```sql
-UPDATE tron_scan_checkpoint
-SET last_block_number = :nextHeight,
-    last_block_hash = :nextBlockHash
-WHERE chain_network = :network
-  AND last_block_number = :currentHeight
-  AND last_block_hash = :currentHash;
-```
-
-影响行数为零表示另一个任务已经推进游标，当前任务停止并重新读取检查点。
+Scanner 只部署一个实例、一个扫块任务，XXL-JOB 配置单机串行。检查点按网络直接更新，高度与 Hash 在同一条 SQL 中修改；摘要写入和检查点更新放在一个手动事务中。
 
 ### 4.3 `tron_scanned_block`
 
-保存每个网络已扫描区块的高度和 Hash。默认连续保留最近 1 万条；更早的历史每 1000 块留一条，并始终保留最初起点。稀疏摘要只占用数据库空间，不加载到内存。
+保存每个网络实际处理的区块高度和 Hash，默认连续保留最近 2 万条。更早记录批量清理，分叉时在保留记录中查找共同区块。
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -324,7 +313,7 @@ scanner 负责及时发现链上事实，`wallet-chain-server` 负责推进充�
 
 生产环境不能静默使用当前最新高度，否则配置错误可能跳过应扫描区块；也不能默认从创世块开始，避免无意义地扫描全部历史。
 
-初始化时读取 FullNode 的起点前一区块，保存检查点和初始摘要；起点为 0 时用 -1 哨兵，不必等待固化。后续启动检查配套摘要和末块 Hash，再继续扫描。分叉时在保留历史中查找最近共同区块；旧版本缺少摘要时按阶段 6 迁移步骤安排一次初始化回放。
+初始化时读取 FullNode 的起点前一区块，保存检查点和初始摘要；起点为 0 时用 -1 哨兵，不必等待固化。后续启动检查配套摘要和末块 Hash，再继续扫描。分叉时在保留历史中查找最近共同区块。近期摘要按准确高度读取，缺少记录时结束本轮并报错。
 
 ### 7.3 scanner 单区块处理顺序
 
@@ -341,7 +330,7 @@ scanner 负责及时发现链上事实，`wallet-chain-server` 负责推进充�
 → 提取进入平台地址的 TRX/TRC20 事件
 → 有充值事件时向 Kafka 发送区块充值事件
 → Kafka Broker ACK 成功
-→ 在一个手动短事务中保存摘要、条件更新本地 HEAD_BLOCK 为 H + 1；整百高度同时清理旧摘要
+→ 在一个手动短事务中保存摘要、更新扫描检查点为 H + 1；整百高度同时清理旧摘要
 → 继续处理下一块
 ```
 
@@ -349,18 +338,20 @@ scanner 负责及时发现链上事实，`wallet-chain-server` 负责推进充�
 
 ### 7.4 区块连续性与共同区块查找
 
-1. 每轮比较末块 Hash，每块比较父 Hash，正常时继续顺序扫描。
-2. 发现不同后，固定一个 FullNode，在本地保留历史中二分查找最近共同区块。
-3. 返回前复查末块和分叉边界，查找期间链变化或节点失败就结束本轮重新查找。
-4. 短事务回退检查点、删除共同区块之后的摘要；下轮从共同区块的下一块重扫。
-5. 默认连续保留最近 `blockHistorySize=10000` 条摘要，更早历史每 1000 块留一条，最初起点始终保留；每到整百高度执行一次压缩，与该块的进度提交在同一事务中执行，期间最多暂时多保留 99 条连续摘要。
-6. 超出近期窗口仍在稀疏摘要中二分查找。真正共同区块为 8500、只保留 8000 和 9000 时，核验后退到 8000，下一轮从 8001 重扫，最多额外重扫 999 块。
-7. 连初始边界也不匹配时，自动读取该高度的新 Hash，事务回退到原始边界并删除后续旧摘要，下轮重放已记录范围。例如初始 99 被替换，就从 100 重放；当前配置起点不会改变已有范围。
-8. 节点读取失败只延后恢复，数据库摘要缺失仍报错；不将缺失的旧 Hash 从当前节点补造。
+1. 每轮比较末块 Hash：相同就正常扫描，不同就处理分叉。
+2. 每块检查高度和父 Hash，发现本轮内发生的分叉；接不上就走同一个分叉处理流程。
+3. 分叉时固定一个 FullNode，在保留摘要中二分查找并复核最后相同的区块。
+4. 一个手动事务更新检查点、删除共同区块之后的摘要；本轮结束，下轮从下一块重扫。
+5. 找不到共同区块时明确报错，保持原进度和摘要；不能跳到最新高度或猜测回退位置。
+6. 默认保留最近 20000 条摘要，每 100 个高度清理一次，与该块的进度提交在同一事务中。
 
-Scanner 不读取固化高度进行分叉恢复。chain-server 继续核验充值固化结果。节点落后、超时或空响应只表示暂时无法读取，不能当作分叉；停机后仍从数据库进度追赶。
+Scanner 只使用 FullNode 完成扫块与分叉恢复。chain-server 独立核验充值固化结果，Scanner 不推进充值确认状态。
+节点落后、超时或空响应不能当作 Hash 不同。查找中节点读取失败或分支变化，结束本轮，下轮重试。
 
-详细例子、事务边界与迁移步骤见[阶段 6 设计](阶段6-充值发现闭环设计.md#9-区块连续性与分叉回退)。
+代码从 `HeadBlockScanService.scanBlocks()` 开始：`checkResult.fork()` 为 true 时调用 `handleFork()`；否则进入 `scanNewBlocks()`。
+单实例、单任务、单机串行；进度服务直接执行数据库操作，没有显式行锁或并发抢占逻辑。
+
+详细例子、事务边界与建表说明见[阶段 6 设计](阶段6-充值发现闭环设计.md#9-区块连续性与分叉回退)。
 
 ### 7.5 chain-server 固化确认任务
 
@@ -504,7 +495,7 @@ scanner 至少配置一个 FullNode，生产建议配置主备节点，用于 He
 | --- | --- |
 | 地址同步 | `source_address_id` 和网络地址唯一键 |
 | 地址 ACK | `appliedMaxAddressId` 水位，只允许向前 |
-| 区块扫描 | `HEAD_BLOCK` 当前游标条件更新 |
+| 区块扫描 | 单线程写入扫描检查点 |
 | 充值上报 | `chain_code + chain_network + tx_id + event_index` |
 
 ### 11.2 多实例
@@ -627,7 +618,7 @@ Job 只负责触发和记录执行结果，业务流程放在 Service。节点 S
 
 1. 引入 `nb-mybatis-starter` 和 MySQL 驱动。
 2. 固化地址和检查点 DDL；阶段 6.5 增加区块摘要表。
-3. 编写实体、Mapper、Service 和检查点条件更新。
+3. 编写实体、Mapper、Service 和检查点更新。
 
 ### 阶段二：地址同步闭环
 

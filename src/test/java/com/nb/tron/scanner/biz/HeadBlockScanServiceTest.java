@@ -6,6 +6,7 @@ import com.nb.tron.scanner.entity.TronScanCheckpoint;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
+import com.nb.tron.scanner.model.HeadBlockCheckResult;
 import com.nb.tron.scanner.model.TronBlockData;
 import com.nb.tron.scanner.model.TronDepositEvent;
 import com.nb.tron.scanner.model.TronNodeHeight;
@@ -66,6 +67,8 @@ class HeadBlockScanServiceTest {
         depositPublisher = mock(DepositDiscoveryPublisher.class);
         progressService = mock(HeadScanProgressService.class);
         continuityService = mock(HeadBlockContinuityService.class);
+        when(continuityService.checkCheckpoint(any())).thenReturn(new HeadBlockCheckResult(false));
+        when(continuityService.isNextBlockContinuous(any(), any())).thenReturn(true);
         when(addressIndex.isReady()).thenReturn(true);
         when(currencyIndex.isReady()).thenReturn(true);
         scanService = new HeadBlockScanService(
@@ -74,8 +77,8 @@ class HeadBlockScanServiceTest {
             currencyIndex,
             nodeManager,
             blockParser,
-            continuityService,
             depositPublisher,
+            continuityService,
             progressService);
     }
 
@@ -207,30 +210,6 @@ class HeadBlockScanServiceTest {
     }
 
     @Test
-    void shouldReloadLatestCheckpointAfterConcurrentAdvance() {
-        when(progressService.loadCheckpoint())
-            .thenReturn(checkpoint(99L, "block-99"), checkpoint(100L, "block-100"));
-        when(nodeManager.getHeadHeight()).thenReturn(nodeHeight(101L));
-        when(nodeManager.getBlockDataByHeight(100L)).thenReturn(blockData(100L));
-        when(nodeManager.getBlockDataByHeight(101L)).thenReturn(blockData(101L));
-        when(blockParser.parse(any(TronBlockData.class))).thenReturn(List.of());
-        when(progressService.advance(checkpoint(99L, "block-99"), blockData(100L)))
-            .thenThrow(BizException.of(ScannerBizErrCode.HEAD_SCAN_CHECKPOINT_CONFLICT));
-        when(progressService.advance(checkpoint(100L, "block-100"), blockData(101L)))
-            .thenReturn(checkpoint(101L, "block-101"));
-
-        assertThatThrownBy(scanService::scanBlocks)
-            .isInstanceOf(BizException.class)
-            .extracting(exception -> ((BizException) exception).getErrorCode())
-            .isEqualTo(ScannerBizErrCode.HEAD_SCAN_CHECKPOINT_CONFLICT);
-        verify(nodeManager, never()).getBlockDataByHeight(101L);
-
-        assertThat(scanService.scanBlocks()).isEqualTo(1);
-        verify(nodeManager).getBlockDataByHeight(100L);
-        verify(nodeManager).getBlockDataByHeight(101L);
-    }
-
-    @Test
     void shouldResumeAfterLastSuccessfulBlockWhenLaterBlockFails() {
         RuntimeException failure = new RuntimeException("publish failed");
         TronBlockData block100 = blockData(100L);
@@ -284,11 +263,40 @@ class HeadBlockScanServiceTest {
     void shouldCheckContinuityEvenWhenThereIsNoNewBlock() {
         TronScanCheckpoint checkpoint = checkpoint(100L, "old-block-100");
         when(progressService.loadCheckpoint()).thenReturn(checkpoint);
-        doThrow(BizException.of(ScannerBizErrCode.HEAD_SCAN_FORK_DETECTED, 100L, 90L))
-            .when(continuityService).checkCheckpoint(checkpoint);
+        when(continuityService.checkCheckpoint(checkpoint)).thenReturn(new HeadBlockCheckResult(true));
 
-        assertThatThrownBy(scanService::scanBlocks).isInstanceOf(BizException.class);
+        assertThat(scanService.scanBlocks()).isZero();
+        verify(continuityService).checkCheckpoint(checkpoint);
+        verify(continuityService).handleFork(checkpoint);
+        verify(nodeManager, never()).getHeadHeight();
         verify(nodeManager, never()).getBlockDataByHeight(anyLong());
+        verify(depositPublisher, never()).publishAndWait(any(), anyList());
+    }
+
+    @Test
+    void shouldCheckCheckpointBeforeReadingNewBlocks() {
+        TronScanCheckpoint checkpoint = checkpoint(100L, "block-100");
+        when(progressService.loadCheckpoint()).thenReturn(checkpoint);
+        when(nodeManager.getHeadHeight()).thenReturn(nodeHeight(100L));
+
+        assertThat(scanService.scanBlocks()).isZero();
+        InOrder order = inOrder(continuityService, progressService, nodeManager);
+        order.verify(progressService).loadCheckpoint();
+        order.verify(continuityService).checkCheckpoint(checkpoint);
+        order.verify(nodeManager).getHeadHeight();
+        verify(continuityService, never()).handleFork(any());
+    }
+
+    @Test
+    void shouldNotStartNormalScanWhenForkHandlingFails() {
+        TronScanCheckpoint checkpoint = checkpoint(100L, "block-100");
+        when(progressService.loadCheckpoint()).thenReturn(checkpoint);
+        when(continuityService.checkCheckpoint(checkpoint)).thenReturn(new HeadBlockCheckResult(true));
+        doThrow(new IllegalStateException("rewind failed")).when(continuityService).handleFork(checkpoint);
+
+        assertThatThrownBy(scanService::scanBlocks).isInstanceOf(IllegalStateException.class);
+        verify(nodeManager, never()).getHeadHeight();
+        verify(progressService, never()).advance(any(), any());
         verify(depositPublisher, never()).publishAndWait(any(), anyList());
     }
 
@@ -331,5 +339,4 @@ class HeadBlockScanServiceTest {
             "TReceiver",
             BigInteger.ONE);
     }
-
 }

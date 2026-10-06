@@ -31,47 +31,15 @@ public class TronScannedBlockServiceImpl extends ServiceImpl<TronScannedBlockMap
     }
 
     @Override
-    public TronScannedBlock findAtOrBefore(String chainNetwork, long blockNumber) {
-        return lambdaQuery()
-                .eq(TronScannedBlock::getChainNetwork, chainNetwork)
-                .le(TronScannedBlock::getBlockNumber, blockNumber)
-                .orderByDesc(TronScannedBlock::getBlockNumber)
-                .last("LIMIT 1")
-                .one();
-    }
-
-    @Override
-    public TronScannedBlock findNextBlock(String chainNetwork, long blockNumber) {
-        return lambdaQuery()
-                .eq(TronScannedBlock::getChainNetwork, chainNetwork)
-                .gt(TronScannedBlock::getBlockNumber, blockNumber)
-                .orderByAsc(TronScannedBlock::getBlockNumber)
-                .last("LIMIT 1")
-                .one();
-    }
-
-    @Override
     public void saveBlock(TronScannedBlock block) {
         save(block);
     }
 
     @Override
-    public boolean replaceBoundaryHash(TronScannedBlock previous, String blockHash) {
-        return lambdaUpdate()
-                .eq(TronScannedBlock::getChainNetwork, previous.getChainNetwork())
-                .eq(TronScannedBlock::getBlockNumber, previous.getBlockNumber())
-                .eq(TronScannedBlock::getBlockHash, previous.getBlockHash())
-                .set(TronScannedBlock::getBlockHash, blockHash)
-                .update();
-    }
-
-    @Override
-    public void compactBefore(String chainNetwork, long blockNumber, long initialBlockNumber, int anchorInterval) {
+    public void removeBefore(String chainNetwork, long blockNumber) {
         lambdaUpdate()
                 .eq(TronScannedBlock::getChainNetwork, chainNetwork)
                 .lt(TronScannedBlock::getBlockNumber, blockNumber)
-                .ne(TronScannedBlock::getBlockNumber, initialBlockNumber)
-                .apply("MOD(block_number, {0}) <> 0", anchorInterval)
                 .remove();
     }
 

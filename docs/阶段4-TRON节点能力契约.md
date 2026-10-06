@@ -18,9 +18,9 @@
 |---|---|---|
 | FullNode 主节点 | 查询最新 Head 高度；按高度读取完整区块；作为正常扫块数据源 | 不作为最终到账依据 |
 | FullNode 备用节点 | 主节点不可用或明显落后时接管 Head 查询和区块读取 | 主节点正常时不得随机分流；按高度读取时，未同步到请求高度的节点不得接管 |
-| SolidityNode（可选） | 保留固化高度和区块头读取能力 | 不参与 Scanner 的 Head 扫描与分叉回退 |
+| SolidityNode（可选） | 节点客户端保留固化高度读取能力，供节点对照验收 | 不参与 Scanner 扫块和分叉恢复 |
 
-SolidityNode 与 FullNode 虽然读取同一条链，但服务高度语义不同，不能互相作为无条件备用节点。`wallet-chain-server` 会独立读取 SolidityNode 核验充值是否最终固化；Scanner 通过 FullNode 比较历史 Hash、查找共同区块，不推进充值固化状态。
+SolidityNode 与 FullNode 虽然读取同一条链，但服务高度语义不同，不能互相作为无条件备用节点。`wallet-chain-server` 会独立读取 SolidityNode 核验充值是否最终固化；Scanner 通过 FullNode 扫描并查找共同区块，不读取固化节点推进充值状态。
 
 ### 2.1 最终责任边界
 
@@ -36,7 +36,7 @@ Scanner 读取 FullNode Head
 
 - Scanner 负责及时发现和 Head 分叉重扫，不判定充值最终到账。
 - `wallet-chain-server` 负责保存链事实、核验固化结果和推进充值状态。
-- Scanner 不依赖固化高度；chain-server 独立查询固化交易和回执。
+- Scanner 扫块和分叉恢复使用 FullNode；chain-server 独立查询固化交易和回执。
 
 ## 3. 冻结的 TRON HTTP 接口
 
@@ -209,7 +209,8 @@ nb:
 - `failure-threshold` 表示节点连续失败多少次后标记为不健康，默认 `3`。它不限制当前请求使用备用节点完成一次安全降级。
 - `height-lag-threshold` 表示 FullNode 比本轮所有健康 FullNode 的最高高度落后多少个区块后视为明显落后，默认 `20`；单个节点不能凭自身高度判定是否落后。
 - `recovery-cooldown` 表示原主节点恢复后至少稳定观察多久才允许重新成为主节点，默认 `60s`。
-- `block-history-size` 默认 `10000`，通常不必配置。近期摘要连续保留，更早的历史每 1000 块留一条，最初起点始终保留；分叉超过近期窗口时仍可自动查找和重扫。
+- `block-history-size` 默认 `20000`，通常不必配置。摘要连续保留，每 100 个高度清理旧记录；保留范围内找不到共同区块时保持进度并报错。
+- Scanner 默认只配置 FullNode；节点客户端保留通用固化读取能力，扫块与分叉恢复不依赖它。
 - API Key 允许为空，以支持自建 java-tron 节点。
 - API Key 属于访问凭证，但不是链上私钥；仍必须按敏感配置管理。
 - Scanner 不接收和保存私钥、助记词、签名密钥、`key_ref` 或交易签名材料。

@@ -15,7 +15,7 @@
   </defs>
   <rect width="1440" height="1590" fill="#f4f7fc"/>
   <text x="45" y="62" class="title">充值发现与分叉恢复：发送成功才推进，发现分叉就回退重扫</text>
-  <text x="45" y="97" class="subtitle">Scanner 读取 FullNode；chain-server 负责充值固化确认，并通知出入金服务。</text>
+  <text x="45" y="97" class="subtitle">Scanner 扫描 FullNode、通过共同区块恢复；chain-server 负责充值确认和入账通知。</text>
 
   <text x="45" y="150" class="heading">一、每轮正常扫描 · 从数据库记录的 H 开始</text>
   <rect x="45" y="177" width="300" height="160" rx="16" class="blue"/>
@@ -42,7 +42,7 @@
   <text x="1116" y="280" class="body">事务：保存摘要 + 推进进度</text>
   <text x="1116" y="311" class="small">整百高度才同时清理旧摘要</text>
   <path d="M345 257H395" class="flow"/><path d="M695 257H745" class="flow"/><path d="M1045 257H1095" class="flow"/>
-  <text x="45" y="376" class="body">空块：不发 Kafka，直接提交摘要和进度。发送失败：保留原进度，下轮重新处理同一块。</text>
+  <text x="45" y="376" class="body">每轮检查末块，每块检查父 Hash。空块直接提交；发送失败保留进度，下轮重试。</text>
 
   <text x="45" y="435" class="heading">二、分叉实例 · 已扫描到 1010，但节点替换了 1008～1010</text>
   <rect x="45" y="462" width="660" height="524" rx="17" class="card"/>
@@ -76,10 +76,10 @@
 
   <text x="45" y="1047" class="heading">三、保留范围与失败处理</text>
   <rect x="45" y="1074" width="430" height="173" rx="16" class="blue"/>
-  <text x="67" y="1112" class="heading">默认连续保留最近 1 万条</text>
-  <text x="67" y="1150" class="body">更早历史：每 1000 块留一条</text>
-  <text x="67" y="1185" class="body">最初起点始终保留，旧记录不入内存</text>
-  <text x="67" y="1220" class="small">压缩旧历史，窗口外分叉仍能自动回退</text>
+  <text x="67" y="1112" class="heading">默认连续保留最近 2 万条</text>
+  <text x="67" y="1150" class="body">更早摘要：按高度直接删除</text>
+  <text x="67" y="1185" class="body">检查点只保存已扫高度和 Hash</text>
+  <text x="67" y="1220" class="small">每 100 块批量清理，最多多留 99 条</text>
   <rect x="505" y="1074" width="430" height="173" rx="16" class="yellow"/>
   <text x="527" y="1112" class="heading">读到不一致数据</text>
   <text x="527" y="1150" class="body">新块接不上，但末块仍正确</text>
@@ -87,19 +87,19 @@
   <text x="527" y="1220" class="small">不把节点异常当成必须回退的分叉</text>
   <rect x="965" y="1074" width="430" height="173" rx="16" class="green"/>
   <text x="987" y="1112" class="heading">共同区块超出近期窗口</text>
-  <text x="987" y="1150" class="body">实际共同块 8500，只留 8000 / 9000</text>
-  <text x="987" y="1185" class="body">8000 相同 → 自动回退，从 8001 重扫</text>
-  <text x="987" y="1220" class="small">最多额外重扫 999 块，不依赖人工改起点</text>
-  <text x="45" y="1279" class="body">初始边界也被替换：自动从数据库保存的原始起点重放；节点超时只延后重试，不触发全量重放。</text>
+  <text x="987" y="1150" class="body">保留范围内所有 Hash 都不同</text>
+  <text x="987" y="1185" class="body">保持扫描进度和摘要，明确报错</text>
+  <text x="987" y="1220" class="small">不能猜回退位置或跳到最新高度</text>
+  <text x="45" y="1279" class="body">窗口内找到共同区块就自动回退；找不到则保持进度并报错。RPC 失败不作为 Hash 不同。</text>
 
-  <text x="45" y="1310" class="heading">四、看代码的顺序</text>
+  <text x="45" y="1310" class="heading">四、代码入口：先检查，再分叉处理或正常扫描</text>
   <rect x="45" y="1337" width="1350" height="205" rx="17" class="card"/>
   <text x="72" y="1377" class="mono">HeadBlockScanJob → HeadBlockScanService</text>
-  <text x="730" y="1377" class="body">任务入口与每轮扫块编排</text>
-  <text x="72" y="1418" class="mono">HeadBlockContinuityService → HeadBlockAncestorFinder</text>
-  <text x="730" y="1418" class="body">发现分叉、固定节点查找共同区块</text>
-  <text x="72" y="1459" class="mono">BinarySearch.findLastMatch</text>
-  <text x="730" y="1459" class="body">独立的二分算法，1000 条约 10 次中点比较</text>
+  <text x="730" y="1377" class="body">先检查：有分叉 → handleFork；无分叉 → 顺序扫描</text>
+  <text x="72" y="1418" class="mono">HeadBlockContinuityService</text>
+  <text x="730" y="1418" class="body">比较末块和父 Hash，组织分叉处理</text>
+  <text x="72" y="1459" class="mono">HeadBlockAncestorFinder / BinarySearch</text>
+  <text x="730" y="1459" class="body">有分叉才查找：固定节点，二分并复核共同区块</text>
   <text x="72" y="1500" class="mono">HeadScanProgressService</text>
-  <text x="730" y="1500" class="body">手动事务：初始化、推进、回退、清理</text>
+  <text x="730" y="1500" class="body">数据库事务：初始化、推进、清理、回退</text>
 </svg>

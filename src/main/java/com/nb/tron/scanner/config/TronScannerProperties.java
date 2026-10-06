@@ -59,10 +59,10 @@ public class TronScannerProperties {
     private Duration kafkaAckTimeout = Duration.ofSeconds(30);
 
     /**
-     * 近期连续保存的区块摘要条数，默认 1 万；每 100 块清理一次，期间最多多保留 99 条。
-     * 更早历史每 1000 块留一条，初始起点始终保留。
+     * 连续保存的区块摘要条数，默认 2 万；每 100 块清理一次，期间最多多保留 99 条。
+     * 分叉时在保留摘要中查找共同区块；找不到则报错并保持原进度。
      */
-    private int blockHistorySize = 10_000;
+    private int blockHistorySize = 20_000;
 
     /**
      * TRON 节点访问策略及节点列表

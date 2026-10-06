@@ -14,8 +14,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Instant;
-import java.util.NavigableMap;
-import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -97,7 +95,7 @@ class HeadBlockAncestorFinderTest {
     @Test
     void shouldStopWhenOldestRetainedBlockAlsoDiffers() {
         history(100, 110, 99);
-        assertError(110, ScannerBizErrCode.HEAD_SCAN_COMMON_ANCESTOR_NOT_FOUND);
+        assertThat(finder.findCommonAncestor(checkpoint(110))).isNull();
         verify(scannedBlockService, never()).findByHeight(eq("MAINNET"), anyLong());
     }
 
@@ -110,27 +108,18 @@ class HeadBlockAncestorFinderTest {
     @Test
     void shouldStopWhenHistoryLookupFails() {
         history(100, 110, 106);
-        when(scannedBlockService.findAtOrBefore("MAINNET", 105)).thenReturn(null);
+        when(scannedBlockService.findByHeight("MAINNET", 105)).thenReturn(null);
         assertError(110, ScannerBizErrCode.HEAD_SCAN_HISTORY_INVALID);
     }
 
     @ParameterizedTest
-    @ValueSource(longs = {999, 1000, 1999, 7999, 8000, 8999, 10_000, 10_001, 20_000})
-    void shouldFindRetainedCommonBlockAcrossSparseAndDenseHistory(long actualCommonHeight) {
-        NavigableMap<Long, TronScannedBlock> retained = new TreeMap<>();
-        retained.put(999L, summary(999));
-        for (long height = 1000; height <= 10_000; height += 1000) {
-            retained.put(height, summary(height));
-        }
-        for (long height = 10_002; height <= 20_001; height++) {
-            retained.put(height, summary(height));
-        }
-        sparseHistory(retained, actualCommonHeight);
+    @ValueSource(longs = {10_002, 10_003, 20_000, 30_000})
+    void shouldFindCommonBlockInTwentyThousandBlockWindow(long actualCommonHeight) {
+        history(10_002, 30_001, actualCommonHeight);
 
-        TronScannedBlock common = finder.findCommonAncestor(checkpoint(20_001));
+        TronScannedBlock common = finder.findCommonAncestor(checkpoint(30_001));
 
-        assertThat(common.getBlockNumber()).isEqualTo(retained.floorKey(actualCommonHeight));
-        assertThat(actualCommonHeight - common.getBlockNumber()).isLessThan(1000);
+        assertThat(common.getBlockNumber()).isEqualTo(actualCommonHeight);
         assertThat(mockingDetails(reader).getInvocations().size()).isLessThanOrEqualTo(24);
     }
 
@@ -168,32 +157,6 @@ class HeadBlockAncestorFinderTest {
         when(scannedBlockService.findByHeight(eq("MAINNET"), anyLong())).thenAnswer(invocation -> {
             long height = invocation.getArgument(1);
             return height >= oldest && height <= last ? summary(height) : null;
-        });
-        when(scannedBlockService.findAtOrBefore(eq("MAINNET"), anyLong())).thenAnswer(invocation -> {
-            long height = invocation.getArgument(1);
-            return height >= oldest ? summary(Math.min(height, last)) : null;
-        });
-        when(scannedBlockService.findNextBlock(eq("MAINNET"), anyLong())).thenAnswer(invocation -> {
-            long height = invocation.getArgument(1);
-            return height < last ? summary(height + 1) : null;
-        });
-        when(reader.getBlockHeaderByHeight(anyLong())).thenAnswer(invocation -> {
-            long height = invocation.getArgument(0);
-            return header(height, (height <= commonHeight ? "h" : "new") + height);
-        });
-    }
-
-    private void sparseHistory(NavigableMap<Long, TronScannedBlock> retained, long commonHeight) {
-        when(scannedBlockService.findOldestBlock("MAINNET")).thenReturn(retained.firstEntry().getValue());
-        when(scannedBlockService.findAtOrBefore(eq("MAINNET"), anyLong())).thenAnswer(invocation -> {
-            long height = invocation.getArgument(1);
-            var entry = retained.floorEntry(height);
-            return entry == null ? null : entry.getValue();
-        });
-        when(scannedBlockService.findNextBlock(eq("MAINNET"), anyLong())).thenAnswer(invocation -> {
-            long height = invocation.getArgument(1);
-            var entry = retained.higherEntry(height);
-            return entry == null ? null : entry.getValue();
         });
         when(reader.getBlockHeaderByHeight(anyLong())).thenAnswer(invocation -> {
             long height = invocation.getArgument(0);

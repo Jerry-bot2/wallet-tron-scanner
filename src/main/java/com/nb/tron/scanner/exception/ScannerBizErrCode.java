@@ -53,13 +53,12 @@ public enum ScannerBizErrCode implements IBizErrCode {
     TRON_BLOCK_DATA_INCOMPLETE(915003, "TRON 区块交易或回执数据不完整"),
 
     /// ////////////////////////////////////// Head 区块扫描 /////////////////////////////////////////
-    HEAD_SCAN_CHECKPOINT_CONFLICT(916001, "Head 扫块检查点已被其他任务更新"),
+    HEAD_SCAN_CHECKPOINT_SAVE_FAILED(916001, "Head 扫块进度保存失败"),
     HEAD_SCAN_KAFKA_PUBLISH_FAILED(916002, "Head 扫块充值事件投递未确认，区块高度 {0}"),
-    HEAD_SCAN_FORK_DETECTED(916003, "检测到 Head 分叉，当前区块高度 {0}，检查点已回退至 {1}"),
 
-    HEAD_SCAN_HISTORY_INVALID(916004, "区块摘要缺失或与检查点不一致，请检查数据或完成旧版本初始化回放"),
-    HEAD_SCAN_COMMON_ANCESTOR_NOT_FOUND(916005, "初始扫描边界与节点不一致，需要从原始边界重放"),
+    HEAD_SCAN_HISTORY_INVALID(916004, "区块摘要缺失或与检查点不一致"),
     HEAD_SCAN_CHAIN_CHANGED(916006, "查找共同区块期间链发生变化，本轮结束，下轮重新查找"),
+    HEAD_SCAN_COMMON_ANCESTOR_NOT_FOUND(916008, "保留的区块摘要中未找到共同区块，扫描进度保持不变"),
 
     /// ////////////////////////////////////// Scanner 内部错误 /////////////////////////////////////////
     CRYPTO_ALGORITHM_UNAVAILABLE(919001, "系统加密算法不可用"),

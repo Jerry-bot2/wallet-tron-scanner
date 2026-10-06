@@ -19,29 +19,11 @@ public class TronScanCheckpointServiceImpl extends ServiceImpl<TronScanCheckpoin
     }
 
     @Override
-    public TronScanCheckpoint lockByNetwork(String chainNetwork) {
-        return baseMapper.selectForUpdate(chainNetwork);
-    }
-
-    @Override
-    public boolean advance(String chainNetwork, long expectedBlockNumber, String expectedBlockHash, long nextBlockNumber, String nextBlockHash) {
+    public boolean updatePosition(String chainNetwork, long blockNumber, String blockHash) {
         return lambdaUpdate()
                 .eq(TronScanCheckpoint::getChainNetwork, chainNetwork)
-                .eq(TronScanCheckpoint::getLastBlockNumber, expectedBlockNumber)
-                .eq(TronScanCheckpoint::getLastBlockHash, expectedBlockHash)
-                .set(TronScanCheckpoint::getLastBlockNumber, nextBlockNumber)
-                .set(TronScanCheckpoint::getLastBlockHash, nextBlockHash)
-                .update();
-    }
-
-    @Override
-    public boolean rewind(String chainNetwork, long expectedBlockNumber, String expectedBlockHash, long rewindBlockNumber, String rewindBlockHash) {
-        return lambdaUpdate()
-                .eq(TronScanCheckpoint::getChainNetwork, chainNetwork)
-                .eq(TronScanCheckpoint::getLastBlockNumber, expectedBlockNumber)
-                .eq(TronScanCheckpoint::getLastBlockHash, expectedBlockHash)
-                .set(TronScanCheckpoint::getLastBlockNumber, rewindBlockNumber)
-                .set(TronScanCheckpoint::getLastBlockHash, rewindBlockHash)
+                .set(TronScanCheckpoint::getLastBlockNumber, blockNumber)
+                .set(TronScanCheckpoint::getLastBlockHash, blockHash)
                 .update();
     }
 }

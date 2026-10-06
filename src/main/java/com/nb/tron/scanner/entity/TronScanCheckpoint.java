@@ -10,7 +10,7 @@ import java.time.Instant;
 /**
  * <p>
  * TRON Head 扫块检查点。
- * 保存每个 TRON 网络最后完整处理成功的 Head 区块位置。
+ * 保存每个 TRON 网络最后完整处理的 Head 高度和 Hash。
  * </p>
  * Author: bin jack
  * Date: 02.10.26
@@ -36,7 +36,7 @@ public class TronScanCheckpoint {
     private String lastBlockHash;
 
     /**
-     * 最近一次推进检查点的时间
+     * 最近一次扫描进度变更时间
      */
     private Instant updatedAt;
 }

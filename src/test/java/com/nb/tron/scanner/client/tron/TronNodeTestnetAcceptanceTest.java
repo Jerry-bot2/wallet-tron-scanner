@@ -1,15 +1,12 @@
 package com.nb.tron.scanner.client.tron;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nb.core.exception.BizException;
 import com.nb.tron.scanner.biz.HeadBlockAncestorFinder;
-import com.nb.tron.scanner.biz.HeadBlockContinuityService;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.entity.TronScanCheckpoint;
 import com.nb.tron.scanner.entity.TronScannedBlock;
 import com.nb.tron.scanner.enums.TronNodeRole;
-import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.model.TronBlockData;
 import com.nb.tron.scanner.model.TronNodeHeight;
 import com.nb.tron.scanner.node.TronNodeHealthService;
@@ -27,7 +24,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -132,12 +128,8 @@ class TronNodeTestnetAcceptanceTest {
                 database.checkpoints().save(oldCheckpoint);
                 var progress = database.progress(properties, manager);
                 var finder = new HeadBlockAncestorFinder(manager, database.blocks());
-                var continuity = new HeadBlockContinuityService(finder, progress, manager);
-
-                assertThatThrownBy(() -> continuity.checkCheckpoint(progress.loadCheckpoint()))
-                    .isInstanceOf(BizException.class)
-                    .extracting(e -> ((BizException) e).getErrorCode())
-                    .isEqualTo(ScannerBizErrCode.HEAD_SCAN_FORK_DETECTED);
+                var common = finder.findCommonAncestor(progress.loadCheckpoint());
+                progress.rewind(progress.loadCheckpoint(), common);
                 assertThat(database.checkpoints().findByNetwork(properties.getChainNetwork()).getLastBlockNumber())
                     .isEqualTo(commonHeight);
                 assertThat(database.blocks().findByHeight(properties.getChainNetwork(), commonHeight + 1)).isNull();
@@ -147,7 +139,7 @@ class TronNodeTestnetAcceptanceTest {
                 TronScanCheckpoint checkpoint = restartedProgress.loadCheckpoint();
                 for (long height = commonHeight + 1; height <= lastHeight; height++) {
                     TronBlockData block = manager.getBlockDataByHeight(height);
-                    continuity.checkNextBlock(checkpoint, block);
+                    assertThat(block.parentBlockId()).isEqualTo(checkpoint.getLastBlockHash());
                     checkpoint = restartedProgress.advance(checkpoint, block);
                 }
                 assertThat(checkpoint.getLastBlockNumber()).isEqualTo(lastHeight);

@@ -44,7 +44,7 @@ public class TronNodeStartupValidator implements ApplicationRunner {
      * 2.可用性检查：FullNode 查询最新 Head 高度，SolidityNode 查询最新固化高度，
      * 确认节点能够正常返回合法区块信息；
      * 3.启动判定：至少一个 FullNode 可用才允许 Scanner 启动。
-     * SolidityNode 是可选能力，不参与 Head 扫描和分叉回退。
+     * SolidityNode 为可选读取能力，不参与 Scanner 扫块和分叉恢复。
      * </p>
      */
     public void validateConfiguredNodes() {
@@ -70,7 +70,5 @@ public class TronNodeStartupValidator implements ApplicationRunner {
         if (fullNodeCount == 0) {
             throw BizException.of(ScannerBizErrCode.TRON_NODE_UNAVAILABLE);
         }
-
     }
-
 }

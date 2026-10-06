@@ -6,6 +6,7 @@ import com.nb.tron.scanner.entity.TronScanCheckpoint;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
+import com.nb.tron.scanner.model.HeadBlockCheckResult;
 import com.nb.tron.scanner.model.TronBlockData;
 import com.nb.tron.scanner.model.TronDepositEvent;
 import com.nb.tron.scanner.mq.publisher.DepositDiscoveryPublisher;
@@ -17,97 +18,87 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * Head 区块扫描服务
- *
- * <p>每轮处理顺序：</p>
- * 1. 读取或初始化本地扫描检查点。<br>
- * 2. 核对上次扫描的区块 Hash，查询 FullNode 当前 Head 高度。<br>
- * 3. 读取下一高度的区块，连续性检查通过后解析充值。<br>
- * 4. 有充值时发送 Kafka，并等待 Broker ACK。<br>
- * 5. 当前区块完整处理成功后，在短事务中保存摘要并推进检查点。
- *
- * <p>任一步失败时，异常直接结束本轮任务，后续区块不再处理。
- * 下一轮重新读取数据库检查点，从最后成功高度的下一块继续。</p>
+ * 单线程扫块入口：加载进度 → 检查分叉 → 回退或顺序扫描。
+ * <p>发现分叉就回退并结束本轮，下轮重扫；正常扫描必须等 Kafka ACK 后才提交进度。</p>
  * <p>
  * Author: bin jack
- * Date: 03.10.26
+ * Date: 06.10.26
  */
 @Service
 @RequiredArgsConstructor
 public class HeadBlockScanService {
 
     private final TronScannerProperties scannerProperties;
-
     private final TronAddressIndex addressIndex;
-
     private final TronCurrencyIndex currencyIndex;
-
     private final TronNodeManager nodeManager;
-
     private final TronBlockParser blockParser;
-
-    private final HeadBlockContinuityService blockContinuityService;
-
     private final DepositDiscoveryPublisher depositPublisher;
-
+    private final HeadBlockContinuityService continuityService;
     private final HeadScanProgressService progressService;
 
     /**
-     * 顺序追赶当前 Head 高度
+     * 扫块入口：先检查分叉；有分叉走回退流程，没有分叉走正常扫描流程。
      *
-     * <p>
-     * 例如 100 已处理成功、101 发送失败，数据库进度停留在 100。
-     * 下次调度或服务重启后从 101 重试，不会跳到 102。
-     * </p>
-     *
-     * <p>扫描流程</p>
-     * (1) 第一次启动事务保存:检查点和区块摘要
-     * (2) 边界检查: 确保没有分叉。出现分叉调整位置同时结束本轮等待下一次扫描
-     * (3) 区块扫描: 读取区块 -> 检查区块父hash是否和checkpoint一致 -> 解析充值 -> 有充值发送Kafka，等待ack -> 保存区块摘要，同时推进检查点
-     * @return 本轮成功处理并推进检查点的区块数量
+     * @return 本轮完成的区块数；发现分叉或区块接不上时结束本轮，返回 0
      */
     public int scanBlocks() {
+        // 1. 确认地址、币种索引已加载，再读取扫描进度，例如上次扫到 1000/H1000。
         requireIndexesReady();
-
-        //第二种情况: 1010 / H1010
-        // blockContinuityService.checkCheckpoint 本地和链路上保存的hash不同，此时出发二分查找。比如找到1007hash一致
-        // 事务执行: 检查点回退：1010 → 1007 ; 删除摘要：1008～1010；本轮结束 下一轮从1008开始扫描
         TronScanCheckpoint checkpoint = progressService.loadCheckpoint();
-        // 每轮开始先核对上次扫描的末块，即使没有新区块也要检查。
-        // 例如保存 1010/H1010，节点已变为 1010/New1010，就查找共同区块并回退，下轮重扫。
-        blockContinuityService.checkCheckpoint(checkpoint);
-        long headBlockHeight = nodeManager.getHeadHeight().blockHeight();
-        int scannedCount = 0;
 
-        while (checkpoint.getLastBlockNumber() < headBlockHeight
-            && scannedCount < scannerProperties.getMaxBlocksPerRun()) {
-            checkpoint = scanNextBlock(checkpoint);
+        // 2. 比较节点的 1000 Hash；不同就进入分叉复查，回退后结束本轮，下轮重扫。
+        HeadBlockCheckResult checkResult = continuityService.checkCheckpoint(checkpoint);
+        if (checkResult.fork()) {
+            continuityService.handleFork(checkpoint);
+            return 0;
+        }
+
+        // 3. 没有分叉：从 1001 开始逐块处理，收到 Kafka ACK 后才保存扫描进度。
+        return scanNewBlocks(checkpoint);
+    }
+
+    /**
+     * 确定本轮扫描范围，再按高度逐块处理。
+     * 例如已扫 1000，节点到 1200、单次上限 100，本轮只处理 1001～1100。
+     * 下一块接不上就复查分叉并结束本轮；能接上才解析、发送和提交进度。
+     */
+    private int scanNewBlocks(TronScanCheckpoint checkpoint) {
+        // 先确定本轮终点：不超过节点高度，也不超过单次扫描上限。
+        long headHeight = nodeManager.getHeadHeight().blockHeight();
+        long scanEndHeight = Math.min(headHeight, checkpoint.getLastBlockNumber() + scannerProperties.getMaxBlocksPerRun());
+
+        int scannedCount = 0;
+        for (long nextBlockHeight = checkpoint.getLastBlockNumber() + 1; nextBlockHeight <= scanEndHeight; nextBlockHeight++) {
+            // 1. 读取下一块：已扫 1000，就读取 1001。
+            TronBlockData blockData = nodeManager.getBlockDataByHeight(nextBlockHeight);
+
+            // 2. 检查父 Hash：1001 必须接在 H1000 后面；接不上就复查并结束本轮。
+            if (!continuityService.isNextBlockContinuous(checkpoint, blockData)) {
+                continuityService.handleParentHashMismatch(checkpoint, blockData);
+                return 0;
+            }
+
+            // 3. 处理并推进：解析充值、等待 Kafka ACK、事务保存，成功后继续 1002。
+            checkpoint = processBlock(checkpoint, blockData);
             scannedCount++;
         }
         return scannedCount;
     }
 
     /**
-     * <p>比如扫描 1000 </p>
-     * (1) 读取 1000 区块和交易，得到 H1000
-     * (2) 读取 1000 的交易执行回执
-     * (3) 再读 1000，确认仍然是 H1000
-     * (4) 检查 1000 的父 Hash 是否等于 H999(也就是 checkpoint)
-     * (5) 解析充值 ->  有充值就发送 Kafka，等待 ACK -> 成功保存 1000 摘要，将检查点推进到 1000
+     * 发送失败不保存进度；提交失败允许重发，由 chain-server 幂等接收。
      */
-    private TronScanCheckpoint scanNextBlock(TronScanCheckpoint checkpoint) {
-        long nextBlockHeight = checkpoint.getLastBlockNumber() + 1;
-        TronBlockData blockData = nodeManager.getBlockDataByHeight(nextBlockHeight);
-        // 一轮会连续扫多块，期间也可能分叉，所以每块都要检查能否接上当前进度。
-        // 例如刚扫完 1011/H1011，1012 的父 Hash 却是 New1011，就需要重新核对分叉。
-        // 正常情况只比较高度和父 Hash，不增加节点请求；接不上时才查找共同区块。
-        blockContinuityService.checkNextBlock(checkpoint, blockData);
+    private TronScanCheckpoint processBlock(TronScanCheckpoint checkpoint, TronBlockData blockData) {
+        // 1. 从区块中解析平台监控地址收到的充值。
         List<TronDepositEvent> deposits = blockParser.parse(blockData);
 
+        // 2. 有充值才发送 Kafka，并等待 ACK；发送失败直接结束，不推进进度。
         if (!deposits.isEmpty()) {
             depositPublisher.publishAndWait(blockData, deposits);
         }
 
+        // 3. 没有充值或发送已成功，事务保存区块摘要和扫描进度。
         return progressService.advance(checkpoint, blockData);
     }
 

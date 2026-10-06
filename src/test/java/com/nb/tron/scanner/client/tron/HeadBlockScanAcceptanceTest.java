@@ -10,8 +10,8 @@ import com.nb.core.exception.BizException;
 import com.nb.kafka.core.KafkaPublishResult;
 import com.nb.kafka.core.KafkaPublisher;
 import com.nb.tron.scanner.biz.HeadBlockAncestorFinder;
-import com.nb.tron.scanner.biz.HeadBlockContinuityService;
 import com.nb.tron.scanner.biz.HeadBlockScanService;
+import com.nb.tron.scanner.biz.HeadBlockContinuityService;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.enums.TronNodeRole;
@@ -267,45 +267,26 @@ class HeadBlockScanAcceptanceTest {
     }
 
     @Test
-    void shouldAutomaticallyReplayFromOlderAnchorWhenForkExceedsRecentWindow() {
+    void shouldReportDeepForkAndPreserveProgressAfterRestart() {
         properties.setBlockHistorySize(4);
         prepareCleanupBoundarySamples();
         job.runRound();
         forkFrom(196, "new");
         int messagesBeforeFork = sentEvents.size();
 
-        // 200 触发清理，近期只留 197～200；196 已压缩，自动退到相同的初始 193。
+        // 保留 197～200，共同区块 196 已被清理：不能直接跳过新分支，也不从配置起点重扫。
         assertThat(database.blocks().findByHeight("MAINNET", 196)).isNull();
-        assertThat(job.runRound()).isZero();
-        assertCheckpoint(193, "h193");
-        assertThat(database.blocks().findByHeight("MAINNET", 200)).isNull();
+        assertThatThrownBy(job::runRound).isInstanceOf(BizException.class)
+            .extracting(e -> ((BizException) e).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.HEAD_SCAN_COMMON_ANCESTOR_NOT_FOUND);
+        assertCheckpoint(200, "h200");
+        assertThat(database.blocks().findByHeight("MAINNET", 200).getBlockHash()).isEqualTo("h200");
         assertThat(sentEvents).hasSize(messagesBeforeFork);
 
         restartScanner();
-        assertThat(job.runRound()).isEqualTo(7);
-        assertCheckpoint(200, "new200");
-        assertThat(database.blocks().findByHeight("MAINNET", 200).getBlockHash()).isEqualTo("new200");
-        assertThat(sentEvents).hasSize(messagesBeforeFork + 2);
-    }
-
-    @Test
-    void shouldAutomaticallyReplayOriginalRangeWhenInitialBoundaryAlsoChanges() {
-        properties.setBlockHistorySize(4);
-        job.runRound();
-        chain.put(98L, sample(98, "h98", "h97", 0));
-        forkFrom(98, "new");
-        // 配置改成 105 也不能缩小已有范围，恢复必须使用数据库保存的初始 99。
-        properties.setStartBlockHeight(105L);
-
-        assertThat(job.runRound()).isZero();
-        assertCheckpoint(99, "new99");
-        assertThat(database.blocks().findByHeight("MAINNET", 99).getBlockHash()).isEqualTo("new99");
-        assertThat(database.blocks().findByHeight("MAINNET", 106)).isNull();
-
-        restartScanner();
-        assertThat(job.runRound()).isEqualTo(7);
-        assertCheckpoint(106, "new106");
-        assertThat(sentEvents).hasSize(4);
+        assertThatThrownBy(job::runRound).isInstanceOf(BizException.class);
+        assertCheckpoint(200, "h200");
+        assertThat(sentEvents).hasSize(messagesBeforeFork);
     }
 
     @Test
@@ -361,9 +342,9 @@ class HeadBlockScanAcceptanceTest {
         var manager = new TronNodeManager(properties, healthService, nodeClient);
         var progress = database.progress(properties, manager);
         var finder = new HeadBlockAncestorFinder(manager, database.blocks());
-        var continuity = new HeadBlockContinuityService(finder, progress, manager);
+        var continuity = new HeadBlockContinuityService(manager, finder, progress);
         job = new TestScanJob(new HeadBlockScanService(properties, addressIndex, currencyIndex,
-            manager, parser, continuity, publisher, progress));
+            manager, parser, publisher, continuity, progress));
     }
 
     private void assertCheckpoint(long height, String hash) {

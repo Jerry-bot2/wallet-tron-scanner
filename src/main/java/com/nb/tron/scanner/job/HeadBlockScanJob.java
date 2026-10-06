@@ -1,10 +1,8 @@
 package com.nb.tron.scanner.job;
 
-import com.nb.core.exception.BizException;
 import com.nb.job.core.NbJobContext;
 import com.nb.job.core.NbJobHandler;
 import com.nb.tron.scanner.biz.HeadBlockScanService;
-import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -28,17 +26,8 @@ public class HeadBlockScanJob extends NbJobHandler {
 
     @Override
     protected Integer doExecute(NbJobContext ignored) {
-        try {
-            int scannedCount = headBlockScanService.scanBlocks();
-            log.info("TRON Head区块扫描完成，scannedCount={}", scannedCount);
-            return scannedCount;
-        } catch (BizException exception) {
-            // 这个结果只在回退事务成功后抛出，下轮从共同区块的下一块重扫。
-            if (exception.getErrorCode() != ScannerBizErrCode.HEAD_SCAN_FORK_DETECTED) {
-                throw exception;
-            }
-            log.warn("TRON Head分叉回退完成，本轮结束，下轮重扫，message={}", exception.getMessage());
-            return 0;
-        }
+        int scannedCount = headBlockScanService.scanBlocks();
+        log.info("TRON Head区块扫描完成，scannedCount={}", scannedCount);
+        return scannedCount;
     }
 }
