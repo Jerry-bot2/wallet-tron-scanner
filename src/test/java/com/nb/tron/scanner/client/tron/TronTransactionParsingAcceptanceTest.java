@@ -1,6 +1,7 @@
 package com.nb.tron.scanner.client.tron;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nb.chain.client.enums.AddressPurpose;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
@@ -66,6 +67,9 @@ class TronTransactionParsingAcceptanceTest {
         String receiptSample = readSample("/samples/tron/transaction-info-100.json");
         server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/wallet/getblockbynum", exchange -> respond(exchange, blockSample));
+        ObjectNode headerSample = (ObjectNode) new ObjectMapper().readTree(blockSample);
+        headerSample.remove("transactions");
+        server.createContext("/wallet/getblock", exchange -> respond(exchange, headerSample.toString()));
         server.createContext(
             "/wallet/gettransactioninfobyblocknum",
             exchange -> respond(exchange, receiptSample));

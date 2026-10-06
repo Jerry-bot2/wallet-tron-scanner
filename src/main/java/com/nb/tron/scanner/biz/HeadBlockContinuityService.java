@@ -8,6 +8,7 @@ import com.nb.tron.scanner.model.HeadBlockCheckResult;
 import com.nb.tron.scanner.model.TronBlockData;
 import com.nb.tron.scanner.model.TronNodeHeight;
 import com.nb.tron.scanner.node.TronNodeManager;
+import com.nb.tron.scanner.support.HeadScanStatistics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -84,6 +85,7 @@ public class HeadBlockContinuityService {
      * @return true 已回退；false 复查末块仍相同，没有回退
      */
     public boolean handleFork(TronScanCheckpoint checkpoint) {
+        HeadScanStatistics.markForkRecheck();
         // 1. 例如已扫 1000，查到最后相同的区块是 998。
         TronScannedBlock commonBlock = ancestorFinder.findCommonAncestor(checkpoint);
         BizAssert.notNull(commonBlock, ScannerBizErrCode.HEAD_SCAN_COMMON_ANCESTOR_NOT_FOUND);

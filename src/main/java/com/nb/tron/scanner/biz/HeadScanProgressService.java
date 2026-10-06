@@ -11,6 +11,7 @@ import com.nb.tron.scanner.model.TronBlockData;
 import com.nb.tron.scanner.node.TronNodeManager;
 import com.nb.tron.scanner.service.ITronScanCheckpointService;
 import com.nb.tron.scanner.service.ITronScannedBlockService;
+import com.nb.tron.scanner.support.HeadScanStatistics;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -38,6 +39,10 @@ public class HeadScanProgressService {
      * 从 0 开始时保存 -1/空 Hash，不请求负数区块。
      */
     public TronScanCheckpoint loadCheckpoint() {
+        return HeadScanStatistics.recordCheckpointLoad(this::loadOrInitializeCheckpoint);
+    }
+
+    private TronScanCheckpoint loadOrInitializeCheckpoint() {
         // 1. 已有进度直接使用；例如已扫 1000，就交回 1000/H1000。
         TronScanCheckpoint checkpoint = checkpointService.findByNetwork(scannerProperties.getChainNetwork());
         if (checkpoint != null) {
@@ -65,6 +70,10 @@ public class HeadScanProgressService {
      * 例如 1000 已完成、正在处理 1001：任一 SQL 失败，仍停在 1000，下轮重试 1001。
      */
     public TronScanCheckpoint advance(TronScanCheckpoint checkpoint, TronBlockData blockData) {
+        return HeadScanStatistics.timeProgressCommit(() -> persistBlock(checkpoint, blockData));
+    }
+
+    private TronScanCheckpoint persistBlock(TronScanCheckpoint checkpoint, TronBlockData blockData) {
         TronScanCheckpoint next = new TronScanCheckpoint()
             .setChainNetwork(checkpoint.getChainNetwork())
             .setLastBlockNumber(blockData.blockHeight())

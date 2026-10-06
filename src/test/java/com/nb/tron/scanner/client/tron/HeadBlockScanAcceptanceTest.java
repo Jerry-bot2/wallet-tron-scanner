@@ -36,8 +36,11 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -69,6 +72,7 @@ import static org.mockito.Mockito.when;
  * Author: bin jack
  * Date: 05.10.26
  */
+@ExtendWith(OutputCaptureExtension.class)
 class HeadBlockScanAcceptanceTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -101,9 +105,14 @@ class HeadBlockScanAcceptanceTest {
             chain.put(height, sample(height, "h" + height, "h" + (height - 1), deposits));
         }
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/wallet/getnowblock", exchange -> {
-            exchange.getRequestBody().readAllBytes();
-            respond(exchange, chain.lastEntry().getValue().block());
+        server.createContext("/wallet/getblock", exchange -> {
+            JsonNode request = objectMapper.readTree(exchange.getRequestBody());
+            long height = request.has("id_or_num")
+                ? Long.parseLong(request.path("id_or_num").textValue()) : chain.lastKey();
+            SampleBlock block = chain.get(height);
+            ObjectNode header = block == null ? objectMapper.createObjectNode() : block.block().deepCopy();
+            header.remove("transactions");
+            respond(exchange, header);
         });
         server.createContext("/wallet/getblockbynum", exchange -> {
             long height = requestHeight(exchange);
@@ -175,7 +184,7 @@ class HeadBlockScanAcceptanceTest {
     }
 
     @Test
-    void shouldScanEmptySingleAndMultipleDepositBlocksThenResumeWithoutResending() {
+    void shouldScanEmptySingleAndMultipleDepositBlocksThenResumeWithoutResending(CapturedOutput output) {
         assertThat(job.runRound()).isEqualTo(7);
         assertThat(sentEvents).hasSize(2);
         assertThat(sentEvents.get(0).getDeposits()).hasSize(1);
@@ -184,15 +193,20 @@ class HeadBlockScanAcceptanceTest {
             .containsExactly("TRX", "USDT");
         assertThat(sentEvents.get(1).getDeposits().get(1).getRawAmount()).isEqualTo(BigInteger.valueOf(1_000_000));
         assertCheckpoint(106, "h106");
+        assertThat(output).contains("completed=true，forkRecheck=false，startHeight=99，lastCompletedHeight=106，observedHeadHeight=106，remainingBlocks=0，scannedCount=7");
+        assertThat(output).contains("nodeReadMillis=", "kafkaAckMillis=", "progressCommitMillis=");
+        assertThat(output.getOut().lines().filter(line -> line.contains("TRON Head扫描本轮结束")).count()).isEqualTo(1L);
 
         restartScanner();
         assertThat(job.runRound()).isZero();
         assertThat(sentEvents).hasSize(2);
+        assertThat(output).contains("startHeight=106，lastCompletedHeight=106，observedHeadHeight=106，remainingBlocks=0，scannedCount=0");
+        assertThat(output).contains("averageBlockMillis=null");
     }
 
     @ParameterizedTest
     @ValueSource(ints = {1, 2, 5, 7})
-    void shouldRewindDifferentForkDepthsAndReplayAfterRestart(int forkDepth) {
+    void shouldRewindDifferentForkDepthsAndReplayAfterRestart(int forkDepth, CapturedOutput output) {
         job.runRound();
         long commonHeight = 106 - forkDepth;
         forkFrom(commonHeight, "new");
@@ -200,6 +214,7 @@ class HeadBlockScanAcceptanceTest {
 
         assertThat(job.runRound()).isZero();
         assertCheckpoint(commonHeight, "h" + commonHeight);
+        assertThat(output).contains("completed=true，forkRecheck=true，startHeight=106，lastCompletedHeight=106，observedHeadHeight=null，remainingBlocks=null，scannedCount=0");
         assertThat(database.blocks().findByHeight("MAINNET", commonHeight + 1)).isNull();
         assertThat(sentEvents).hasSize(messagesBeforeRewind);
 
@@ -216,7 +231,7 @@ class HeadBlockScanAcceptanceTest {
     }
 
     @Test
-    void shouldDetectForkDuringSameRoundBeforeParsingTheNextBlock() {
+    void shouldDetectForkDuringSameRoundBeforeParsingTheNextBlock(CapturedOutput output) {
         afterAck = () -> {
             forkFrom(99, "new");
             afterAck = () -> { };
@@ -227,6 +242,7 @@ class HeadBlockScanAcceptanceTest {
         assertCheckpoint(99, "h99");
         assertThat(database.blocks().findByHeight("MAINNET", 100)).isNull();
         assertThat(sentEvents).hasSize(1);
+        assertThat(output).contains("completed=true，forkRecheck=true，startHeight=99，lastCompletedHeight=100，observedHeadHeight=106，remainingBlocks=null，scannedCount=1");
 
         restartScanner();
         assertThat(job.runRound()).isEqualTo(7);
@@ -307,12 +323,30 @@ class HeadBlockScanAcceptanceTest {
     }
 
     @Test
-    void shouldResendSameDepositAfterKafkaFailureAndRestart() {
+    void shouldKeepSuccessfulCommitCountWhenLaterPublishFails(CapturedOutput output) {
+        afterAck = () -> {
+            nextPublishFailure = new IllegalStateException("第二个区块 ACK 失败");
+            afterAck = () -> { };
+        };
+
+        assertThatThrownBy(job::runRound).isInstanceOf(BizException.class);
+        assertCheckpoint(100, "h100");
+        assertThat(output).contains("completed=false，forkRecheck=false，startHeight=99，lastCompletedHeight=100，observedHeadHeight=106，remainingBlocks=6，scannedCount=1");
+
+        restartScanner();
+        assertThat(job.runRound()).isEqualTo(6);
+        assertCheckpoint(106, "h106");
+        assertThat(output).contains("completed=true，forkRecheck=false，startHeight=100，lastCompletedHeight=106，observedHeadHeight=106，remainingBlocks=0，scannedCount=6");
+    }
+
+    @Test
+    void shouldResendSameDepositAfterKafkaFailureAndRestart(CapturedOutput output) {
         nextPublishFailure = new IllegalStateException("模拟 Broker ACK 失败");
 
         assertThatThrownBy(job::runRound).isInstanceOf(BizException.class)
             .extracting(e -> ((BizException) e).getErrorCode())
             .isEqualTo(ScannerBizErrCode.HEAD_SCAN_KAFKA_PUBLISH_FAILED);
+        assertThat(output).contains("completed=false，forkRecheck=false，startHeight=99，lastCompletedHeight=99，observedHeadHeight=106，remainingBlocks=7，scannedCount=0");
         assertCheckpoint(99, "h99");
         assertThat(database.blocks().findByHeight("MAINNET", 100)).isNull();
 
@@ -321,6 +355,7 @@ class HeadBlockScanAcceptanceTest {
         assertCheckpoint(106, "h106");
         assertThat(sentEvents).hasSize(3);
         assertThat(sentEvents.get(0)).isEqualTo(sentEvents.get(1));
+        assertThat(output).contains("completed=true，forkRecheck=false，startHeight=99，lastCompletedHeight=106，observedHeadHeight=106，remainingBlocks=0，scannedCount=7");
     }
 
     /**

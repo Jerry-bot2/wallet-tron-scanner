@@ -15,7 +15,10 @@ import com.nb.tron.scanner.node.TronNodeManager;
 import com.nb.tron.scanner.parser.TronBlockParser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
 
 import java.math.BigInteger;
@@ -40,6 +43,7 @@ import static org.mockito.Mockito.when;
  * Author: bin jack
  * Date: 03.10.26
  */
+@ExtendWith(OutputCaptureExtension.class)
 class HeadBlockScanServiceTest {
 
     private TronScannerProperties scannerProperties;
@@ -83,7 +87,7 @@ class HeadBlockScanServiceTest {
     }
 
     @Test
-    void shouldPublishBeforeAdvancingCheckpoint() {
+    void shouldPublishBeforeAdvancingCheckpoint(CapturedOutput output) {
         TronScanCheckpoint checkpoint = checkpoint(99L, "block-99");
         TronBlockData blockData = blockData(100L);
         List<TronDepositEvent> deposits = List.of(deposit(100L));
@@ -101,6 +105,12 @@ class HeadBlockScanServiceTest {
         processingOrder.verify(blockParser).parse(blockData);
         processingOrder.verify(depositPublisher).publishAndWait(blockData, deposits);
         processingOrder.verify(progressService).advance(checkpoint(99L, "block-99"), blockData(100L));
+        assertThat(output).contains("completed=true");
+        assertThat(output).contains("elapsedMillis=", "averageBlockMillis=", "nodeReadMillis=", "kafkaAckMillis=", "progressCommitMillis=");
+        assertThat(output.getOut().lines().filter(line -> line.contains("TRON Head扫描本轮结束")).count()).isEqualTo(1L);
+        verify(progressService, times(1)).loadCheckpoint();
+        verify(nodeManager, times(1)).getHeadHeight();
+        verify(nodeManager, times(1)).getBlockDataByHeight(100L);
     }
 
     @Test
@@ -285,6 +295,24 @@ class HeadBlockScanServiceTest {
         order.verify(continuityService).checkCheckpoint(checkpoint);
         order.verify(nodeManager).getHeadHeight();
         verify(continuityService, never()).handleFork(any());
+    }
+
+    @Test
+    void shouldStopRoundWhenNextBlockDoesNotConnect() {
+        when(progressService.loadCheckpoint()).thenReturn(checkpoint(99L, "block-99"));
+        when(nodeManager.getHeadHeight()).thenReturn(nodeHeight(101L));
+        when(nodeManager.getBlockDataByHeight(100L)).thenReturn(blockData(100L));
+        when(nodeManager.getBlockDataByHeight(101L)).thenReturn(blockData(101L));
+        when(blockParser.parse(blockData(100L))).thenReturn(List.of());
+        when(progressService.advance(checkpoint(99L, "block-99"), blockData(100L)))
+            .thenReturn(checkpoint(100L, "block-100"));
+        when(continuityService.isNextBlockContinuous(checkpoint(100L, "block-100"), blockData(101L)))
+            .thenReturn(false);
+
+        assertThat(scanService.scanBlocks()).isZero();
+
+        verify(progressService, never()).advance(checkpoint(100L, "block-100"), blockData(101L));
+        verify(continuityService).handleParentHashMismatch(checkpoint(100L, "block-100"), blockData(101L));
     }
 
     @Test

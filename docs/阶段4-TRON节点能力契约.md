@@ -43,13 +43,13 @@ Scanner 读取 FullNode Head
 ### 3.1 FullNode 最新 Head
 
 ```http
-POST /wallet/getnowblock
+POST /wallet/getblock
 Content-Type: application/json
 
-{}
+{"detail": false}
 ```
 
-用途：取得节点当前最新 Head 区块头。该区块可能尚未固化。
+用途：取得节点当前最新 Head 区块头。省略 `id_or_num` 表示最新区块，`detail=false` 只返回区块头，不下载交易列表。该区块可能尚未固化。
 
 ### 3.2 FullNode 按高度读取区块
 
@@ -65,13 +65,13 @@ Content-Type: application/json
 ### 3.3 SolidityNode 最新固化高度
 
 ```http
-POST /walletsolidity/getnowblock
+POST /walletsolidity/getblock
 Content-Type: application/json
 
-{}
+{"detail": false}
 ```
 
-用途：取得 SolidityNode 当前最新固化区块头。固化高度正常情况下落后 Head，不以两者存在高度差直接判定节点异常。
+用途：只取得 SolidityNode 当前最新固化区块头，不下载交易列表。固化高度正常情况下落后 Head，不以两者存在高度差直接判定节点异常。
 
 ### 3.4 FullNode 按区块高度读取交易回执
 
@@ -86,9 +86,9 @@ Content-Type: application/json
 
 ### 3.5 启动网络校验
 
-启动时分别调用 FullNode 的 `POST /wallet/getblockbynum` 和 SolidityNode 的 `POST /walletsolidity/getblockbynum` 查询高度 `0`，将返回的 `blockID` 与当前环境配置的 `expectedGenesisBlockId` 比较。仅配置 `MAINNET`、`NILE` 等文本名称不能证明节点实际连接到了正确网络。
+调用 FullNode 的 `POST /wallet/getblock` 和可选 SolidityNode 的 `POST /walletsolidity/getblock`，发送 `{"id_or_num":"0","detail":false}` 查询创世区块头，将返回的 `blockID` 与当前环境配置的 `expectedGenesisBlockId` 比较。仅配置 `MAINNET`、`NILE` 等文本名称不能证明节点实际连接到了正确网络。
 
-网络校验只在节点初始化阶段使用，不作为后续业务读取接口。
+网络校验用于节点启动和健康探测。扫描末块核对、共同区块查找和读取回执后的 Hash 复核也使用区块头接口，例如高度 `1000`：`{"id_or_num":"1000","detail":false}`。完整交易仍通过 `/wallet/getblockbynum` 读取，回执仍单独读取，Hash 复核步骤保留。
 
 ## 4. 请求约束
 
@@ -236,11 +236,10 @@ nb:
 ## 11. 官方依据
 
 - [FullNode HTTP API](https://developers.tron.network/reference/full-node-api-overview)
-- [FullNode GetNowBlock](https://developers.tron.network/reference/wallet-getnowblock)
+- [FullNode GetBlock（支持仅区块头）](https://developers.tron.network/reference/getblock-1)
 - [FullNode GetBlockByNum](https://developers.tron.network/reference/wallet-getblockbynum)
 - [FullNode GetTransactionInfoByBlockNum](https://developers.tron.network/reference/gettransactioninfobyblocknum)
-- [SolidityNode GetNowBlock](https://developers.tron.network/reference/getnowblock)
-- [SolidityNode GetBlockByNum](https://developers.tron.network/reference/getblockbynum)
+- [SolidityNode GetBlock（支持仅区块头）](https://developers.tron.network/reference/getblock-2)
 - [TRON Blocks](https://developers.tron.network/docs/block)
 - [Exchange Wallet Integration](https://developers.tron.network/docs/exchangewallet-integrate-with-the-tron-network)
 

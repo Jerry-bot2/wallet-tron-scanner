@@ -10,6 +10,7 @@ import com.nb.tron.scanner.model.TronBlockData;
 import com.nb.tron.scanner.model.TronNodeHeight;
 import com.nb.tron.scanner.model.TronTransaction;
 import com.nb.tron.scanner.model.TronTransactionReceipt;
+import com.nb.tron.scanner.support.HeadScanStatistics;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -21,11 +22,10 @@ import java.util.List;
 import java.util.Map;
 
 import static com.nb.tron.scanner.constant.TronConstants.GENESIS_BLOCK_HEIGHT;
-import static com.nb.tron.scanner.constant.TronHttpConstants.EMPTY_REQUEST;
 import static com.nb.tron.scanner.constant.TronHttpConstants.FULL_BLOCK_BY_NUM_PATH;
-import static com.nb.tron.scanner.constant.TronHttpConstants.FULL_NOW_BLOCK_PATH;
-import static com.nb.tron.scanner.constant.TronHttpConstants.SOLID_BLOCK_BY_NUM_PATH;
-import static com.nb.tron.scanner.constant.TronHttpConstants.SOLID_NOW_BLOCK_PATH;
+import static com.nb.tron.scanner.constant.TronHttpConstants.FULL_BLOCK_HEADER_PATH;
+import static com.nb.tron.scanner.constant.TronHttpConstants.LATEST_BLOCK_HEADER_REQUEST;
+import static com.nb.tron.scanner.constant.TronHttpConstants.SOLID_BLOCK_HEADER_PATH;
 import static com.nb.tron.scanner.constant.TronHttpConstants.TRANSACTION_INFO_BY_BLOCK_PATH;
 
 /**
@@ -55,8 +55,10 @@ public class TronNodeClient {
      */
     public TronNodeHeight getHeadHeight(TronNodeEndpointProperties endpoint) {
         requireRole(endpoint, TronNodeRole.FULL_NODE);
-        JsonNode response = httpTransport.post(endpoint, FULL_NOW_BLOCK_PATH, EMPTY_REQUEST);
-        return toNodeHeight(endpoint.getCode(), readBlockHeader(response, null));
+        JsonNode response = httpTransport.post(endpoint, FULL_BLOCK_HEADER_PATH, LATEST_BLOCK_HEADER_REQUEST);
+        TronNodeHeight head = toNodeHeight(endpoint.getCode(), readBlockHeader(response, null));
+        HeadScanStatistics.observeHead(head.blockHeight());
+        return head;
     }
 
     /**
@@ -72,7 +74,7 @@ public class TronNodeClient {
      */
     public TronNodeHeight getSolidHeight(TronNodeEndpointProperties endpoint) {
         requireRole(endpoint, TronNodeRole.SOLIDITY_NODE);
-        JsonNode response = httpTransport.post(endpoint, SOLID_NOW_BLOCK_PATH, EMPTY_REQUEST);
+        JsonNode response = httpTransport.post(endpoint, SOLID_BLOCK_HEADER_PATH, LATEST_BLOCK_HEADER_REQUEST);
         return toNodeHeight(endpoint.getCode(), readBlockHeader(response, null));
     }
 
@@ -83,6 +85,7 @@ public class TronNodeClient {
      * 1. 启动时读取第 0 个区块，核对创世区块 ID，防止连错网络。<br>
      * 2. 扫描时核对已扫描区块，以及读取回执期间区块 Hash 是否发生变化。
      * </p>
+     * <p>请求 detail=false，只传回区块头，避免每次核对 Hash 都下载完整交易列表。</p>
      *
      * @param endpoint    本次查询使用的 FullNode 或 SolidityNode
      * @param blockHeight 要查询的区块高度
@@ -93,9 +96,9 @@ public class TronNodeClient {
         BizAssert.notNull(endpoint.getRole(), ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
         requireBlockHeight(blockHeight);
         String path = endpoint.getRole() == TronNodeRole.SOLIDITY_NODE
-            ? SOLID_BLOCK_BY_NUM_PATH
-            : FULL_BLOCK_BY_NUM_PATH;
-        JsonNode response = httpTransport.post(endpoint, path, blockRequest(blockHeight));
+            ? SOLID_BLOCK_HEADER_PATH
+            : FULL_BLOCK_HEADER_PATH;
+        JsonNode response = httpTransport.post(endpoint, path, blockHeaderRequest(blockHeight));
         return toNodeHeight(endpoint.getCode(), readBlockHeader(response, blockHeight));
     }
 
@@ -105,7 +108,7 @@ public class TronNodeClient {
      * <p>
      * 1. 第一次请求：读取区块 Hash 和交易列表，得到转账或合约调用内容。<br>
      * 2. 第二次请求：读取这些交易的执行回执，得到实际产生的 Transfer 日志。<br>
-     * 3. 第三次请求：重新读取同一高度的区块，比较 Hash，确认读取回执期间区块未发生变化。
+     * 3. 第三次请求：只读取同一高度的区块头，比较 Hash，确认读取回执期间区块未发生变化。
      * </p>
      * <p>前两次请求都需要：区块包含交易内容，但不包含执行产生的 Transfer 日志，
      * USDT／TRC20 转账要从回执日志中识别。第三次请求用于检查前两次读取之间是否发生分叉。
@@ -140,7 +143,7 @@ public class TronNodeClient {
             throw BizException.of(ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
         }
 
-        // 3. 第三次请求：再读同一高度的区块，只取 Hash 与第一次比较。
+        // 3. 第三次请求：detail=false 只读同一高度的区块头，与第一次的 Hash 比较。
         // 前两次是独立请求，期间可能分叉。例如第一次是 100/A，第三次变为 100/B，
         // 就丢弃本次区块和回执，由节点管理器整块重读，避免混用不同分支的数据。
         TronNodeHeight currentBlock = getBlockHeaderByHeight(endpoint, blockHeight);
@@ -271,6 +274,10 @@ public class TronNodeClient {
 
     private String blockRequest(long blockHeight) {
         return "{\"num\":" + blockHeight + "}";
+    }
+
+    private String blockHeaderRequest(long blockHeight) {
+        return "{\"id_or_num\":\"" + blockHeight + "\",\"detail\":false}";
     }
 
     private record BlockHeader(long blockHeight,

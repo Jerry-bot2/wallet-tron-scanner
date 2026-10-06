@@ -142,10 +142,11 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 
 | 类 | 负责什么 |
 |---|---|
-| `HeadBlockScanService` | `scanBlocks` 分流，`scanNewBlocks` 顺序扫块，`processBlock` 解析、发送、提交 |
+| `HeadBlockScanService` | `scanBlocks` 汇总一轮，`scanRound` 分流，`scanNewBlocks` 顺序扫块，`processBlock` 解析、发送、提交 |
 | `HeadBlockContinuityService` | 比较末块和父 Hash、查找共同区块并调用回退 |
 | `HeadBlockAncestorFinder` | 固定 FullNode，二分查找并复核近期共同区块 |
 | `HeadScanProgressService` | 初始化、提交进度、清理摘要、事务回退 |
+| `HeadScanStatistics` | 统一管理一轮统计作用域，汇总完成块数、落后高度和各入口耗时 |
 
 `checkCheckpoint()` 返回 `HeadBlockCheckResult`，入口通过 `checkResult.fork()` 明确判断是否进入分叉处理。
 
@@ -153,6 +154,31 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 例如 1000 退到 998：保留 998，删除 999、1000，下轮从 999 重扫；任一步失败全部回滚。
 
 摘要默认保留最近 2 万条，每 100 个高度清理一次；期间最多多留 99 条。
+
+### 扫块性能观察
+
+1. 只查区块头时使用 `/wallet/getblock` 的 `detail=false`；可选固化节点使用 `/walletsolidity/getblock`。完整区块和回执仍分别读取，第三次 Hash 复核只下载区块头。
+2. 每轮结束输出一条 `TRON Head扫描本轮结束` 日志，成功、失败和分叉轮次都会记录。
+3. 统计复用本轮已读到的高度，用 `System.nanoTime()` 计算耗时，无需新增配置。
+
+扫块入口只调用一次 `HeadScanStatistics.recordRound(...)`，`scanRound`、`scanNewBlocks` 和 `processBlock` 保持业务编排，不传递统计参数。HTTP 请求、Kafka 发布和进度提交各自在自己的入口记录；本轮结束时统一汇总并清理线程内的统计作用域。其他线程的健康检查不计入扫块统计。
+
+| 日志字段 | 含义 |
+|---|---|
+| `completed` | 本轮是否正常返回；异常时为 false，原异常继续向外抛出 |
+| `forkRecheck` | 本轮是否进入分叉复查；父 Hash 接不上也要复查，不代表已经确认分叉 |
+| `startHeight` / `lastCompletedHeight` | 本轮开始前的位置 / 本轮最后成功提交的位置；分叉回退后的实际位置看回退日志 |
+| `observedHeadHeight` | 本轮查询时节点的最新高度；不是日志输出时重新查询的高度 |
+| `remainingBlocks` | 节点高度减去最后完成高度；尚未读取节点高度或进入分叉复查时为 null |
+| `scannedCount` | 本轮实际成功提交的区块数；即使后续失败或回退，也保留此前完成数 |
+| `elapsedMillis` / `averageBlockMillis` | 本轮总耗时 / 总耗时除以完成数；未完成区块时平均值为 null |
+| `nodeReadMillis` | 本轮所有节点 HTTP 请求的累计耗时，包含响应读取、JSON 解析、失败请求、初始化和分叉查找 |
+| `kafkaAckMillis` | Kafka 发送并等待 ACK 的累计耗时，失败和超时也计时 |
+| `progressCommitMillis` | 正常扫块进度事务的累计耗时，包含摘要保存、进度更新和定期清理 |
+
+例如本轮从 `1000` 提交到 `1100`，读取的节点高度为 `1200`：`scannedCount=100`，`remainingBlocks=100`。初次加载、交易解析和分叉处理计入总耗时，阶段耗时之和不要求等于总耗时。完成数只在进度事务成功后累加，事务回滚或 Kafka 失败不算完成。
+
+本次优化验证：完整测试 190 项通过，0 失败，3 项需配置真实节点的验收测试跳过。覆盖统计线程隔离、失败后重试、分叉回退和实际完成数量。另外直接调用 Nile 公共节点验证最新区块头、指定高度区块头和最新固化区块头：均不返回交易列表，同高度 Hash 一致。实际扫块吞吐量仍需结合运行日志观察。
 找不到共同区块时抛出 `HEAD_SCAN_COMMON_ANCESTOR_NOT_FOUND`，交给 XXL-JOB 按失败告警策略处理。
 节点读取失败、高度不足不作为分叉；一次查找固定一个节点，读失败或分支变化就结束本轮重试。
 

@@ -12,6 +12,7 @@ import com.nb.tron.scanner.model.TronDepositEvent;
 import com.nb.tron.scanner.mq.publisher.DepositDiscoveryPublisher;
 import com.nb.tron.scanner.node.TronNodeManager;
 import com.nb.tron.scanner.parser.TronBlockParser;
+import com.nb.tron.scanner.support.HeadScanStatistics;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -39,10 +40,19 @@ public class HeadBlockScanService {
 
     /**
      * 扫块入口：先检查分叉；有分叉走回退流程，没有分叉走正常扫描流程。
+     * <p>入口只包裹一次统计；业务步骤见 {@link #scanRound()}。</p>
      *
      * @return 本轮完成的区块数；发现分叉或区块接不上时结束本轮，返回 0
      */
     public int scanBlocks() {
+        return HeadScanStatistics.recordRound(scannerProperties.getChainNetwork(), this::scanRound);
+    }
+
+    /**
+     * 执行一轮业务流程：加载进度 → 复查末块 → 分叉回退或顺序扫描。
+     * 耗时与结果由 scanBlocks 统一汇总，统计不改变处理顺序。
+     */
+    private int scanRound() {
         // 1. 确认地址、币种索引已加载，再读取扫描进度，例如上次扫到 1000/H1000。
         requireIndexesReady();
         TronScanCheckpoint checkpoint = progressService.loadCheckpoint();

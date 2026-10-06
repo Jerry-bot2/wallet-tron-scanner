@@ -4,7 +4,6 @@ import com.nb.job.core.NbJobContext;
 import com.nb.job.core.NbJobHandler;
 import com.nb.tron.scanner.biz.HeadBlockScanService;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
@@ -17,7 +16,6 @@ import org.springframework.stereotype.Component;
  * Author: bin jack
  * Date: 03.10.26
  */
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class HeadBlockScanJob extends NbJobHandler {
@@ -26,8 +24,6 @@ public class HeadBlockScanJob extends NbJobHandler {
 
     @Override
     protected Integer doExecute(NbJobContext ignored) {
-        int scannedCount = headBlockScanService.scanBlocks();
-        log.info("TRON Head区块扫描完成，scannedCount={}", scannedCount);
-        return scannedCount;
+        return headBlockScanService.scanBlocks();
     }
 }

@@ -9,6 +9,7 @@ import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.model.TronBlockData;
 import com.nb.tron.scanner.model.TronDepositEvent;
+import com.nb.tron.scanner.support.HeadScanStatistics;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -42,6 +43,10 @@ public class DepositDiscoveryPublisher {
      * @param deposits  当前区块识别出的充值事实
      */
     public void publishAndWait(TronBlockData blockData, List<TronDepositEvent> deposits) {
+        HeadScanStatistics.timeKafkaAck(() -> sendAndWaitForAck(blockData, deposits));
+    }
+
+    private void sendAndWaitForAck(TronBlockData blockData, List<TronDepositEvent> deposits) {
         // 1. 同一区块的充值合成一条消息，带上区块高度、Hash 和每笔充值的信息。
         ObservedBlockEvent blockEvent = toBlockEvent(blockData, deposits);
         try {

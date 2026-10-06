@@ -5,6 +5,7 @@ import com.nb.core.exception.BizException;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
+import com.nb.tron.scanner.support.HeadScanStatistics;
 import com.nb.tron.scanner.support.JsonCodec;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -50,6 +51,10 @@ class TronHttpTransport {
      * @return 校验通过的 JSON 响应
      */
     JsonNode post(TronNodeEndpointProperties endpoint, String path, String requestBody) {
+        return HeadScanStatistics.timeNodeRead(() -> executePost(endpoint, path, requestBody));
+    }
+
+    private JsonNode executePost(TronNodeEndpointProperties endpoint, String path, String requestBody) {
         HttpRequest request = buildRequest(endpoint, path, requestBody);
         HttpResponse<InputStream> response = send(request);
         validateStatus(response);

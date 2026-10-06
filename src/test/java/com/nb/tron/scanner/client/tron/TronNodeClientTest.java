@@ -2,7 +2,6 @@ package com.nb.tron.scanner.client.tron;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nb.core.exception.BizException;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
@@ -67,7 +66,7 @@ class TronNodeClientTest {
             assertThat(input).isNotNull();
             genesis = new String(input.readAllBytes(), StandardCharsets.UTF_8);
         }
-        server.createContext("/wallet/getblockbynum", exchange -> respond(exchange, 200, genesis));
+        server.createContext("/wallet/getblock", exchange -> respond(exchange, 200, genesis));
 
         TronNodeHeight block = nodeClient.getBlockHeaderByHeight(
             endpoint("nile-full", TronNodeRole.FULL_NODE, null), 0);
@@ -85,7 +84,7 @@ class TronNodeClientTest {
         var block = mapper.readTree(blockJson(100, "block-100", "block-99", ""));
         ((ObjectNode) block.path("block_header").path("raw_data"))
             .remove(fieldName);
-        server.createContext("/wallet/getblockbynum", exchange -> respond(exchange, 200, block.toString()));
+        server.createContext("/wallet/getblock", exchange -> respond(exchange, 200, block.toString()));
 
         assertThatThrownBy(() -> nodeClient.getBlockHeaderByHeight(
             endpoint("full-primary", TronNodeRole.FULL_NODE, null), 100))
@@ -101,7 +100,7 @@ class TronNodeClientTest {
         var block = mapper.readTree(blockJson(0, "block-0", "", ""));
         ((ObjectNode) block.path("block_header").path("raw_data"))
             .putNull(fieldName);
-        server.createContext("/wallet/getblockbynum", exchange -> respond(exchange, 200, block.toString()));
+        server.createContext("/wallet/getblock", exchange -> respond(exchange, 200, block.toString()));
 
         assertThatThrownBy(() -> nodeClient.getBlockHeaderByHeight(
             endpoint("full-primary", TronNodeRole.FULL_NODE, null), 0))
@@ -113,9 +112,11 @@ class TronNodeClientTest {
     @Test
     void shouldQueryHeadHeightAndSendApiKey() {
         AtomicReference<String> apiKey = new AtomicReference<>();
-        server.createContext("/wallet/getnowblock", exchange -> {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        server.createContext("/wallet/getblock", exchange -> {
             apiKey.set(exchange.getRequestHeaders().getFirst("TRON-PRO-API-KEY"));
-            respond(exchange, 200, blockJson(100L, "block-100", "block-99", ""));
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, 200, headerJson(100L, "block-100", "block-99"));
         });
 
         TronNodeHeight height = nodeClient.getHeadHeight(
@@ -125,18 +126,60 @@ class TronNodeClientTest {
         assertThat(height.blockHeight()).isEqualTo(100L);
         assertThat(height.blockId()).isEqualTo("block-100");
         assertThat(apiKey.get()).isEqualTo("test-key");
+        assertThat(requestBody.get()).isEqualTo("{\"detail\":false}");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"FULL_NODE", "SOLIDITY_NODE"})
+    void shouldRequestOnlyHeaderAtSpecifiedHeight(String roleName) {
+        TronNodeRole role = TronNodeRole.valueOf(roleName);
+        String path = role == TronNodeRole.FULL_NODE ? "/wallet/getblock" : "/walletsolidity/getblock";
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        server.createContext(path, exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, 200, headerJson(100L, "block-100", "block-99"));
+        });
+
+        TronNodeHeight block = nodeClient.getBlockHeaderByHeight(endpoint("node", role, null), 100L);
+
+        assertThat(block.blockId()).isEqualTo("block-100");
+        assertThat(requestBody.get()).isEqualTo("{\"id_or_num\":\"100\",\"detail\":false}");
+    }
+
+    @Test
+    void shouldQueryLatestSolidHeaderWithoutDownloadingTransactions() {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        server.createContext("/walletsolidity/getblock", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, 200, headerJson(90L, "block-90", "block-89"));
+        });
+
+        TronNodeHeight block = nodeClient.getSolidHeight(endpoint("solid-node", TronNodeRole.SOLIDITY_NODE, null));
+
+        assertThat(block.blockHeight()).isEqualTo(90L);
+        assertThat(requestBody.get()).isEqualTo("{\"detail\":false}");
     }
 
     @Test
     void shouldCombineBlockTransactionsAndReceipts() {
+        AtomicInteger fullBlockReads = new AtomicInteger();
+        AtomicReference<String> fullBlockRequest = new AtomicReference<>();
+        AtomicReference<String> headerRequest = new AtomicReference<>();
         String transaction = """
             {"txID":"tx-1","raw_data":{"contract":[{"type":"TransferContract"}]}}
             """;
         String receipt = """
             {"id":"tx-1","blockNumber":100,"result":"SUCESS","log":[]}
             """;
-        server.createContext("/wallet/getblockbynum", exchange ->
-            respond(exchange, 200, blockJson(100L, "block-100", "block-99", transaction)));
+        server.createContext("/wallet/getblockbynum", exchange -> {
+            fullBlockReads.incrementAndGet();
+            fullBlockRequest.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, 200, blockJson(100L, "block-100", "block-99", transaction));
+        });
+        server.createContext("/wallet/getblock", exchange -> {
+            headerRequest.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, 200, headerJson(100L, "block-100", "block-99"));
+        });
         server.createContext("/wallet/gettransactioninfobyblocknum", exchange ->
             respond(exchange, 200, "[" + receipt + "]"));
 
@@ -148,6 +191,9 @@ class TronNodeClientTest {
         assertThat(blockData.transactions()).hasSize(1);
         assertThat(blockData.transactions().getFirst().rawJson()).contains("TransferContract");
         assertThat(blockData.receipts().get("tx-1").rawJson()).contains("\"log\":[]");
+        assertThat(fullBlockReads.get()).isEqualTo(1);
+        assertThat(fullBlockRequest.get()).isEqualTo("{\"num\":100}");
+        assertThat(headerRequest.get()).isEqualTo("{\"id_or_num\":\"100\",\"detail\":false}");
     }
 
     @Test
@@ -160,6 +206,10 @@ class TronNodeClientTest {
         server.createContext("/wallet/getblockbynum", exchange -> {
             blockReads.incrementAndGet();
             respond(exchange, 200, blockJson(100L, blockId.get(), "block-99", transaction));
+        });
+        server.createContext("/wallet/getblock", exchange -> {
+            blockReads.incrementAndGet();
+            respond(exchange, 200, headerJson(100L, blockId.get(), "block-99"));
         });
         server.createContext("/wallet/gettransactioninfobyblocknum", exchange -> {
             // 同一交易在新区块中重新打包，交易 ID 和高度都相同，仅核对回执集合无法识别。
@@ -177,14 +227,9 @@ class TronNodeClientTest {
 
     @Test
     void shouldRejectBlockWhenHashRecheckCannotBeCompleted() {
-        AtomicInteger blockReads = new AtomicInteger();
-        server.createContext("/wallet/getblockbynum", exchange -> {
-            if (blockReads.incrementAndGet() == 1) {
-                respond(exchange, 200, blockJson(100L, "block-100", "block-99", ""));
-                return;
-            }
-            respond(exchange, 503, "{}");
-        });
+        server.createContext("/wallet/getblockbynum", exchange ->
+            respond(exchange, 200, blockJson(100L, "block-100", "block-99", "")));
+        server.createContext("/wallet/getblock", exchange -> respond(exchange, 503, "{}"));
         server.createContext("/wallet/gettransactioninfobyblocknum", exchange -> respond(exchange, 200, "[]"));
 
         assertThatThrownBy(() -> nodeClient.getBlockDataByHeight(
@@ -236,6 +281,11 @@ class TronNodeClientTest {
             }
             respond(exchange, 200, blockJson(100L, "block-100", "block-99", ""));
         });
+        server.createContext("/wallet/getblock", exchange -> {
+            var request = new ObjectMapper().readTree(exchange.getRequestBody().readAllBytes());
+            long height = Long.parseLong(request.path("id_or_num").textValue());
+            respond(exchange, 200, headerJson(height, "block-" + height, "block-" + (height - 1)));
+        });
         server.createContext("/wallet/gettransactioninfobyblocknum", exchange ->
             respond(exchange, 200, "[]"));
         TronNodeEndpointProperties fullNode = endpoint(
@@ -262,7 +312,7 @@ class TronNodeClientTest {
 
     @Test
     void shouldClassifyRateLimitedResponse() {
-        server.createContext("/wallet/getnowblock", exchange -> respond(exchange, 429, "{}"));
+        server.createContext("/wallet/getblock", exchange -> respond(exchange, 429, "{}"));
 
         assertThatThrownBy(() -> nodeClient.getHeadHeight(
             endpoint("full-primary", TronNodeRole.FULL_NODE, null)))
@@ -281,6 +331,14 @@ class TronNodeClientTest {
         endpoint.setBaseUrl(URI.create("http://127.0.0.1:" + server.getAddress().getPort()));
         endpoint.setApiKey(apiKey);
         return endpoint;
+    }
+
+    private String headerJson(long height, String blockId, String parentBlockId) {
+        return """
+            {"blockID":"%s","block_header":{"raw_data":{
+              "number":%d,"parentHash":"%s","timestamp":1720000000000
+            }}}
+            """.formatted(blockId, height, parentBlockId);
     }
 
     private String blockJson(long height,
