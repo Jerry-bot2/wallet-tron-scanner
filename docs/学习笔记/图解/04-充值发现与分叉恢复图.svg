@@ -40,7 +40,7 @@
   <text x="1116" y="214" class="heading">④ 发送并提交进度</text>
   <text x="1116" y="248" class="body">Kafka 消息 → 等待 ACK</text>
   <text x="1116" y="280" class="body">事务：保存摘要 + 推进进度</text>
-  <text x="1116" y="311" class="small">同时清理太旧的区块摘要</text>
+  <text x="1116" y="311" class="small">整百高度才同时清理旧摘要</text>
   <path d="M345 257H395" class="flow"/><path d="M695 257H745" class="flow"/><path d="M1045 257H1095" class="flow"/>
   <text x="45" y="376" class="body">空块：不发 Kafka，直接提交摘要和进度。发送失败：保留原进度，下轮重新处理同一块。</text>
 

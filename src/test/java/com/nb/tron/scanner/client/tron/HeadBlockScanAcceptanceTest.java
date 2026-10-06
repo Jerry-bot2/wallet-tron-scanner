@@ -253,36 +253,38 @@ class HeadBlockScanAcceptanceTest {
     }
 
     @Test
-    void shouldRecoverAtOldestRetainedBlock() {
+    void shouldRecoverAtRecentWindowBoundary() {
         properties.setBlockHistorySize(4);
+        prepareCleanupBoundarySamples();
         job.runRound();
-        assertThat(database.blocks().findOldestBlock("MAINNET").getBlockNumber()).isEqualTo(99);
-        forkFrom(103, "new");
+        assertThat(database.blocks().findByHeight("MAINNET", 196)).isNull();
+        forkFrom(197, "new");
 
         assertThat(job.runRound()).isZero();
-        assertCheckpoint(103, "h103");
+        assertCheckpoint(197, "h197");
         assertThat(job.runRound()).isEqualTo(3);
-        assertCheckpoint(106, "new106");
+        assertCheckpoint(200, "new200");
     }
 
     @Test
     void shouldAutomaticallyReplayFromOlderAnchorWhenForkExceedsRecentWindow() {
         properties.setBlockHistorySize(4);
+        prepareCleanupBoundarySamples();
         job.runRound();
-        forkFrom(102, "new");
+        forkFrom(196, "new");
         int messagesBeforeFork = sentEvents.size();
 
-        // 近期只留 103～106，真正共同区块 102 已压缩，自动退到仍相同的初始 99。
-        assertThat(database.blocks().findByHeight("MAINNET", 102)).isNull();
+        // 200 触发清理，近期只留 197～200；196 已压缩，自动退到相同的初始 193。
+        assertThat(database.blocks().findByHeight("MAINNET", 196)).isNull();
         assertThat(job.runRound()).isZero();
-        assertCheckpoint(99, "h99");
-        assertThat(database.blocks().findByHeight("MAINNET", 106)).isNull();
+        assertCheckpoint(193, "h193");
+        assertThat(database.blocks().findByHeight("MAINNET", 200)).isNull();
         assertThat(sentEvents).hasSize(messagesBeforeFork);
 
         restartScanner();
         assertThat(job.runRound()).isEqualTo(7);
-        assertCheckpoint(106, "new106");
-        assertThat(database.blocks().findByHeight("MAINNET", 106).getBlockHash()).isEqualTo("new106");
+        assertCheckpoint(200, "new200");
+        assertThat(database.blocks().findByHeight("MAINNET", 200).getBlockHash()).isEqualTo("new200");
         assertThat(sentEvents).hasSize(messagesBeforeFork + 2);
     }
 
@@ -338,6 +340,21 @@ class HeadBlockScanAcceptanceTest {
         assertCheckpoint(106, "h106");
         assertThat(sentEvents).hasSize(3);
         assertThat(sentEvents.get(0)).isEqualTo(sentEvents.get(1));
+    }
+
+    /**
+     * 从 194 扫到 200，经过一次真实清理；194、195 带充值，其余为空块。
+     */
+    private void prepareCleanupBoundarySamples() {
+        chain.clear();
+        for (long height = 193; height <= 200; height++) {
+            int deposits = height == 194 ? 1 : height == 195 ? 2 : 0;
+            chain.put(height, sample(height, "h" + height, "h" + (height - 1), deposits));
+        }
+        properties.setStartBlockHeight(194L);
+        when(healthService.getNodeStates()).thenReturn(List.of(TronNodeRuntimeState.success(
+            endpoint.getCode(), TronNodeRole.FULL_NODE, null, 200, 1, Instant.now().minusSeconds(120))));
+        restartScanner();
     }
 
     private void restartScanner() {

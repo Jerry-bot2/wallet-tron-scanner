@@ -89,7 +89,7 @@ public class HeadScanProgressService {
      * <p>1. 锁定检查点，确认数据库进度没有改变。<br>
      * 2. 保存本次处理完成的区块摘要。<br>
      * 3. 将检查点推进到本次区块的高度和 Hash。<br>
-     * 4. 压缩近期窗口之外的旧摘要，保留历史回退用的记录。</p>
+     * 4. 高度为 100 的整数倍时，压缩旧摘要；其他高度不查询、不清理历史。</p>
      * <p>例如当前为 1010，本次处理完成 1011：一起保存 1011 的摘要和检查点。
      * 四步在同一个手动事务中执行，任一步失败全部回滚；提交成功才返回新进度。</p>
      *
@@ -110,7 +110,7 @@ public class HeadScanProgressService {
             // 3. 推进扫描检查点
             updateCheckpoint(currentCheckpoint, nextCheckpoint);
 
-            // 4. 压缩旧摘要，保留历史查找起点
+            // 4. 每 100 个高度清理一次，保留历史查找起点
             pruneHistory(nextCheckpoint);
             return nextCheckpoint;
         });
@@ -145,11 +145,18 @@ public class HeadScanProgressService {
      * 连续保留：10001～20000
      * 更早保留：99（初始起点）、1000、2000、……、10000
      * 删除：更早历史中不属于上述保留点的摘要
+     * 20001～20099：只保存摘要和推进进度，暂时多保留最多 99 条。
+     * 扫描到 20100：再次清理，连续保留 10101～20100。
      * </pre>
+     * <p>按高度整百触发，不依赖内存计数，重启和回退后仍沿用同一规则。</p>
      * <p>这里压缩旧历史；分叉回退时，{@link #rewind} 删除共同区块之后的旧分支记录。
      * 清理与本次区块提交在同一个手动事务中完成，任一步失败全部回滚。</p>
      */
     private void pruneHistory(TronScanCheckpoint checkpoint) {
+        if (checkpoint.getLastBlockNumber() % TronConstants.BLOCK_HISTORY_CLEANUP_INTERVAL != 0) {
+            return;
+        }
+
         long oldestHeight = Math.max(checkpoint.getLastBlockNumber() - scannerProperties.getBlockHistorySize() + 1, -1);
         TronScannedBlock initialBoundary = scannedBlockService.findOldestBlock(checkpoint.getChainNetwork());
         if (initialBoundary == null || initialBoundary.getBlockNumber() >= oldestHeight) {

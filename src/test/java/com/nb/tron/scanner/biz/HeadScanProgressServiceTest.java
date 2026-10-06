@@ -214,29 +214,52 @@ class HeadScanProgressServiceTest {
     void shouldKeepRecentWindowAndInitialAnchorWithoutTouchingOtherNetworks() {
         properties.setBlockHistorySize(2);
         scannedBlockService.saveBlock(summary("NILE", 1, "nile1"));
-        scanThrough102();
+        progressService.advance(prepareHistoryThrough(199), block(200, "h200"));
 
         assertThat(scannedBlockService.findByHeight("MAINNET", 100)).isNull();
         assertThat(scannedBlockService.findOldestBlock("MAINNET").getBlockNumber()).isEqualTo(99);
-        assertThat(scannedBlockService.findByHeight("MAINNET", 102)).isNotNull();
+        assertThat(scannedBlockService.findByHeight("MAINNET", 199)).isNotNull();
+        assertThat(scannedBlockService.findByHeight("MAINNET", 200)).isNotNull();
         assertThat(scannedBlockService.findByHeight("NILE", 1)).isNotNull();
-        assertThat(createProgressService().loadCheckpoint().getLastBlockNumber()).isEqualTo(102);
+        assertThat(createProgressService().loadCheckpoint().getLastBlockNumber()).isEqualTo(200);
+    }
+
+    @Test
+    void shouldSkipHistoryQueriesBetweenCleanupHeightsAndResumeCleanupAfterRestart() {
+        properties.setBlockHistorySize(4);
+        TronScanCheckpoint checkpoint = progressService.advance(prepareHistoryThrough(199), block(200, "h200"));
+        clearInvocations(checkpointService, scannedBlockService);
+
+        // 201～299 不查询、不清理旧历史，每块仅锁定进度、插入摘要、更新进度。
+        for (long h = 201; h <= 299; h++) {
+            checkpoint = progressService.advance(checkpoint, block(h, "h" + h));
+        }
+        verify(checkpointService, times(99)).lockByNetwork("MAINNET");
+        verify(checkpointService, times(99)).advance(eq("MAINNET"), anyLong(), anyString(), anyLong(), anyString());
+        verify(scannedBlockService, times(99)).saveBlock(any());
+        verify(scannedBlockService, never()).findOldestBlock(anyString());
+        verify(scannedBlockService, never()).compactBefore(anyString(), anyLong(), anyLong(), anyInt());
+        // 连续摘要 197～299，共 4 + 99 条；另外保留初始边界 99。
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM tron_scanned_block WHERE chain_network = 'MAINNET'", Integer.class))
+            .isEqualTo(104);
+
+        HeadScanProgressService restarted = createProgressService();
+        restarted.advance(restarted.loadCheckpoint(), block(300, "h300"));
+        verify(scannedBlockService, times(1)).findOldestBlock("MAINNET");
+        verify(scannedBlockService, times(1)).compactBefore("MAINNET", 297, 99, 1000);
+        assertThat(jdbc.queryForList("SELECT block_number FROM tron_scanned_block WHERE chain_network = 'MAINNET' ORDER BY block_number", Long.class))
+            .containsExactly(99L, 297L, 298L, 299L, 300L);
     }
 
     @Test
     void shouldCompactOldHistoryAndAutomaticallyRewindToMatchingSparseAnchor() {
         properties.setBlockHistorySize(4);
-        progressService.loadCheckpoint();
-        // 批量准备历史，再由真实 advance 执行压缩；避免在测试中逐块提交 5000 次。
-        List<Object[]> rows = LongStream.rangeClosed(100, 5104)
-            .mapToObj(h -> new Object[] {"MAINNET", h, "h" + h}).toList();
-        jdbc.batchUpdate("INSERT INTO tron_scanned_block VALUES (?, ?, ?)", rows);
-        checkpointService.advance("MAINNET", 99, "h99", 5104, "h5104");
+        TronScanCheckpoint checkpoint = prepareHistoryThrough(5199);
         scannedBlockService.saveBlock(summary("NILE", 4501, "nile4501"));
 
-        TronScanCheckpoint current = progressService.advance(progressService.loadCheckpoint(), block(5105, "h5105"));
+        TronScanCheckpoint current = progressService.advance(checkpoint, block(5200, "h5200"));
         assertThat(jdbc.queryForList("SELECT block_number FROM tron_scanned_block WHERE chain_network = 'MAINNET' ORDER BY block_number", Long.class))
-            .containsExactly(99L, 1000L, 2000L, 3000L, 4000L, 5000L, 5102L, 5103L, 5104L, 5105L);
+            .containsExactly(99L, 1000L, 2000L, 3000L, 4000L, 5000L, 5197L, 5198L, 5199L, 5200L);
         assertThat(scannedBlockService.findAtOrBefore("MAINNET", 4500).getBlockNumber()).isEqualTo(4000);
         assertThat(scannedBlockService.findNextBlock("MAINNET", 4000).getBlockNumber()).isEqualTo(5000);
         assertThat(scannedBlockService.findByHeight("NILE", 4501)).isNotNull();
@@ -267,7 +290,7 @@ class HeadScanProgressServiceTest {
         properties.setStartBlockHeight(0L);
         properties.setBlockHistorySize(2);
         TronScanCheckpoint current = progressService.loadCheckpoint();
-        for (long h = 0; h <= 4; h++) {
+        for (long h = 0; h <= 100; h++) {
             current = progressService.advance(current, block(h, "h" + h));
         }
 
@@ -275,8 +298,9 @@ class HeadScanProgressServiceTest {
         assertThat(scannedBlockService.findByHeight("MAINNET", -1).getBlockHash()).isEmpty();
         assertThat(scannedBlockService.findByHeight("MAINNET", 0)).isNotNull();
         assertThat(scannedBlockService.findByHeight("MAINNET", 1)).isNull();
-        assertThat(scannedBlockService.findByHeight("MAINNET", 3)).isNotNull();
-        assertThat(createProgressService().loadCheckpoint().getLastBlockNumber()).isEqualTo(4);
+        assertThat(scannedBlockService.findByHeight("MAINNET", 99)).isNotNull();
+        assertThat(scannedBlockService.findByHeight("MAINNET", 100)).isNotNull();
+        assertThat(createProgressService().loadCheckpoint().getLastBlockNumber()).isEqualTo(100);
     }
 
     @Test
@@ -379,10 +403,10 @@ class HeadScanProgressServiceTest {
     @Test
     void shouldRejectRewindToDeletedNonAnchorBlock() {
         properties.setBlockHistorySize(2);
-        TronScanCheckpoint current = scanThrough102();
+        TronScanCheckpoint current = progressService.advance(prepareHistoryThrough(199), block(200, "h200"));
         assertThatThrownBy(() -> progressService.rewind(current, summary("MAINNET", 100, "h100")))
             .isInstanceOf(BizException.class);
-        assertThat(checkpointService.findByNetwork("MAINNET").getLastBlockNumber()).isEqualTo(102);
+        assertThat(checkpointService.findByNetwork("MAINNET").getLastBlockNumber()).isEqualTo(200);
         assertThat(scannedBlockService.findOldestBlock("MAINNET").getBlockNumber()).isEqualTo(99);
     }
 
@@ -498,21 +522,37 @@ class HeadScanProgressServiceTest {
     @Test
     void shouldRollbackProgressSummaryAndCleanupTogether() {
         properties.setBlockHistorySize(2);
-        TronScanCheckpoint checkpoint = progressService.loadCheckpoint();
-        checkpoint = progressService.advance(checkpoint, block(100, "h100"));
-        checkpoint = progressService.advance(checkpoint, block(101, "h101"));
-        TronScanCheckpoint current = checkpoint;
+        TronScanCheckpoint current = prepareHistoryThrough(199);
         doAnswer(invocation -> {
             invocation.callRealMethod();
             throw new IllegalStateException("cleanup failed before commit");
-        }).when(scannedBlockService).compactBefore("MAINNET", 101, 99, 1000);
+        }).when(scannedBlockService).compactBefore("MAINNET", 199, 99, 1000);
 
-        assertThatThrownBy(() -> progressService.advance(current, block(102, "h102")))
+        assertThatThrownBy(() -> progressService.advance(current, block(200, "h200")))
             .isInstanceOf(IllegalStateException.class);
         assertThat(scannedBlockService.findOldestBlock("MAINNET").getBlockNumber()).isEqualTo(99);
         assertThat(scannedBlockService.findByHeight("MAINNET", 100)).isNotNull();
-        assertThat(scannedBlockService.findByHeight("MAINNET", 102)).isNull();
-        assertThat(createProgressService().loadCheckpoint().getLastBlockNumber()).isEqualTo(101);
+        assertThat(scannedBlockService.findByHeight("MAINNET", 200)).isNull();
+        assertThat(createProgressService().loadCheckpoint().getLastBlockNumber()).isEqualTo(199);
+
+        // 清理失败没有推进 200；重启后仍在同一高度重试，不会跳过本次清理。
+        doCallRealMethod().when(scannedBlockService).compactBefore("MAINNET", 199, 99, 1000);
+        HeadScanProgressService restarted = createProgressService();
+        restarted.advance(restarted.loadCheckpoint(), block(200, "h200"));
+        assertThat(jdbc.queryForList("SELECT block_number FROM tron_scanned_block WHERE chain_network = 'MAINNET' ORDER BY block_number", Long.class))
+            .containsExactly(99L, 199L, 200L);
+    }
+
+    /**
+     * 批量准备已经扫过的历史，再由真实 advance 验证整百高度的清理与事务行为。
+     */
+    private TronScanCheckpoint prepareHistoryThrough(long lastBlockNumber) {
+        progressService.loadCheckpoint();
+        List<Object[]> rows = LongStream.rangeClosed(100, lastBlockNumber)
+            .mapToObj(h -> new Object[] {"MAINNET", h, "h" + h}).toList();
+        jdbc.batchUpdate("INSERT INTO tron_scanned_block VALUES (?, ?, ?)", rows);
+        checkpointService.advance("MAINNET", 99, "h99", lastBlockNumber, "h" + lastBlockNumber);
+        return progressService.loadCheckpoint();
     }
 
     private TronDepositEvent deposit(String txId, String hash) {
