@@ -24,12 +24,12 @@ public class TronNodeProperties {
     private Duration connectTimeout = Duration.ofSeconds(3);
 
     /**
-     * 等待节点返回完整响应的最长时间
+     * 单次 HTTP 请求直到响应体收完的最长等待时间，响应头先到也不会停止计时
      */
     private Duration readTimeout = Duration.ofSeconds(10);
 
     /**
-     * 单次节点响应允许占用的最大内存
+     * 单次节点响应体的字节数上限，接收过程中超限就取消读取
      */
     private DataSize maxResponseSize = DataSize.ofMegabytes(16);
 

@@ -13,14 +13,16 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static com.nb.tron.scanner.constant.TronHttpConstants.API_KEY_HEADER;
 
@@ -56,11 +58,8 @@ class TronHttpTransport {
 
     private JsonNode executePost(TronNodeEndpointProperties endpoint, String path, String requestBody) {
         HttpRequest request = buildRequest(endpoint, path, requestBody);
-        HttpResponse<InputStream> response = send(request);
-        validateStatus(response);
-
-        byte[] responseBody = readResponseBody(response.body());
-        return parseResponse(responseBody);
+        HttpResponse<byte[]> response = send(request);
+        return parseResponse(response.body());
     }
 
     private HttpRequest buildRequest(TronNodeEndpointProperties endpoint,
@@ -77,43 +76,47 @@ class TronHttpTransport {
         return builder.build();
     }
 
-    private HttpResponse<InputStream> send(HttpRequest request) {
+    /**
+     * 1. 接收响应时限制大小，超过上限立即取消读取。
+     * 2. 等整个响应体收完才返回；响应头先到、正文一直不结束，也受 readTimeout 限制。
+     * 3. 超时或线程中断时取消 HTTP 请求，让扫块线程结束等待。
+     */
+    private HttpResponse<byte[]> send(HttpRequest request) {
+        CompletableFuture<HttpResponse<byte[]>> responseFuture = httpClient.sendAsync(request, responseInfo -> {
+            validateStatus(responseInfo.statusCode());
+            return new LimitedResponseBodySubscriber(scannerProperties.getNode().getMaxResponseSize().toBytes());
+        });
         try {
-            return httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-        } catch (HttpTimeoutException exception) {
+            return responseFuture.get(request.timeout().orElseThrow().toNanos(), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException exception) {
+            responseFuture.cancel(true);
             throw new BizException(ScannerBizErrCode.TRON_NODE_TIMEOUT, exception);
-        } catch (IOException exception) {
-            throw new BizException(ScannerBizErrCode.TRON_NODE_CONNECT_FAILED, exception);
         } catch (InterruptedException exception) {
+            responseFuture.cancel(true);
             Thread.currentThread().interrupt();
             throw new BizException(ScannerBizErrCode.TRON_NODE_CONNECT_FAILED, exception);
+        } catch (ExecutionException exception) {
+            throw responseFailure(exception.getCause());
         }
     }
 
-    private void validateStatus(HttpResponse<InputStream> response) {
-        int statusCode = response.statusCode();
+    private BizException responseFailure(Throwable cause) {
+        if (cause instanceof BizException exception) {
+            return exception;
+        }
+        ScannerBizErrCode errorCode = cause instanceof HttpTimeoutException
+            ? ScannerBizErrCode.TRON_NODE_TIMEOUT
+            : ScannerBizErrCode.TRON_NODE_CONNECT_FAILED;
+        return new BizException(errorCode, cause);
+    }
+
+    private void validateStatus(int statusCode) {
         // 请求太频繁，被节点限流了
         if (statusCode == 429) {
-            close(response.body());
             throw BizException.of(ScannerBizErrCode.TRON_NODE_RATE_LIMITED);
         }
         if (statusCode < 200 || statusCode >= 300) {
-            close(response.body());
             throw BizException.of(ScannerBizErrCode.TRON_NODE_REMOTE_ERROR);
-        }
-    }
-
-    private byte[] readResponseBody(InputStream responseBody) {
-        int maxResponseBytes = Math.toIntExact(
-            scannerProperties.getNode().getMaxResponseSize().toBytes());
-        try (responseBody) {
-            byte[] body = responseBody.readNBytes(maxResponseBytes + 1);
-            if (body.length > maxResponseBytes) {
-                throw BizException.of(ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
-            }
-            return body;
-        } catch (IOException exception) {
-            throw new BizException(ScannerBizErrCode.TRON_NODE_CONNECT_FAILED, exception);
         }
     }
 
@@ -132,14 +135,6 @@ class TronHttpTransport {
             return response;
         } catch (UncheckedIOException exception) {
             throw new BizException(ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID, exception);
-        }
-    }
-
-    private void close(InputStream responseBody) {
-        try {
-            responseBody.close();
-        } catch (IOException ignored) {
-            // 响应已判定失败，关闭连接异常不覆盖原始错误类型。
         }
     }
 }

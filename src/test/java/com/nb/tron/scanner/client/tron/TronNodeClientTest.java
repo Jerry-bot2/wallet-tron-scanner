@@ -25,6 +25,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -163,6 +165,8 @@ class TronNodeClientTest {
     @Test
     void shouldCombineBlockTransactionsAndReceipts() {
         AtomicInteger fullBlockReads = new AtomicInteger();
+        AtomicInteger receiptReads = new AtomicInteger();
+        AtomicInteger headerReads = new AtomicInteger();
         AtomicReference<String> fullBlockRequest = new AtomicReference<>();
         AtomicReference<String> headerRequest = new AtomicReference<>();
         String transaction = """
@@ -177,11 +181,14 @@ class TronNodeClientTest {
             respond(exchange, 200, blockJson(100L, "block-100", "block-99", transaction));
         });
         server.createContext("/wallet/getblock", exchange -> {
+            headerReads.incrementAndGet();
             headerRequest.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             respond(exchange, 200, headerJson(100L, "block-100", "block-99"));
         });
-        server.createContext("/wallet/gettransactioninfobyblocknum", exchange ->
-            respond(exchange, 200, "[" + receipt + "]"));
+        server.createContext("/wallet/gettransactioninfobyblocknum", exchange -> {
+            receiptReads.incrementAndGet();
+            respond(exchange, 200, "[" + receipt + "]");
+        });
 
         TronBlockData blockData = nodeClient.getBlockDataByHeight(
             endpoint("full-primary", TronNodeRole.FULL_NODE, null), 100L);
@@ -192,8 +199,53 @@ class TronNodeClientTest {
         assertThat(blockData.transactions().getFirst().rawJson()).contains("TransferContract");
         assertThat(blockData.receipts().get("tx-1").rawJson()).contains("\"log\":[]");
         assertThat(fullBlockReads.get()).isEqualTo(1);
+        assertThat(receiptReads.get()).isEqualTo(1);
+        assertThat(headerReads.get()).isEqualTo(1);
         assertThat(fullBlockRequest.get()).isEqualTo("{\"num\":100}");
         assertThat(headerRequest.get()).isEqualTo("{\"id_or_num\":\"100\",\"detail\":false}");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"missing", "null", "empty"})
+    void shouldSkipReceiptsAndStillRecheckHashForEmptyBlock(String transactionField) throws IOException {
+        ObjectNode block = (ObjectNode) new ObjectMapper().readTree(blockJson(100, "block-100", "block-99", ""));
+        if (transactionField.equals("missing")) {
+            block.remove("transactions");
+        } else if (transactionField.equals("null")) {
+            block.putNull("transactions");
+        }
+        List<String> requests = new CopyOnWriteArrayList<>();
+        server.createContext("/wallet/getblockbynum", exchange -> {
+            requests.add("block");
+            respond(exchange, 200, block.toString());
+        });
+        server.createContext("/wallet/getblock", exchange -> {
+            requests.add("header");
+            respond(exchange, 200, headerJson(100, "block-100", "block-99"));
+        });
+        server.createContext("/wallet/gettransactioninfobyblocknum", exchange -> {
+            requests.add("receipts");
+            respond(exchange, 503, "{}");
+        });
+
+        TronBlockData result = nodeClient.getBlockDataByHeight(endpoint("full", TronNodeRole.FULL_NODE, null), 100);
+
+        assertThat(result.transactions()).isEmpty();
+        assertThat(result.receipts()).isEmpty();
+        assertThat(requests).containsExactly("block", "header");
+    }
+
+    @Test
+    void shouldRejectEmptyBlockWhenHashChanges() {
+        server.createContext("/wallet/getblockbynum", exchange ->
+            respond(exchange, 200, blockJson(100, "block-100-old", "block-99", "")));
+        server.createContext("/wallet/getblock", exchange ->
+            respond(exchange, 200, headerJson(100, "block-100-new", "block-99")));
+
+        assertThatThrownBy(() -> nodeClient.getBlockDataByHeight(endpoint("full", TronNodeRole.FULL_NODE, null), 100))
+            .isInstanceOf(BizException.class)
+            .extracting(exception -> ((BizException) exception).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
     }
 
     @Test

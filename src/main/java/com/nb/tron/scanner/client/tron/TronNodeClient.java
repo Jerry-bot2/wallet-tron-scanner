@@ -106,13 +106,14 @@ public class TronNodeClient {
      * 读取指定高度的完整区块数据
      *
      * <p>
-     * 1. 第一次请求：读取区块 Hash 和交易列表，得到转账或合约调用内容。<br>
-     * 2. 第二次请求：读取这些交易的执行回执，得到实际产生的 Transfer 日志。<br>
-     * 3. 第三次请求：只读取同一高度的区块头，比较 Hash，确认读取回执期间区块未发生变化。
+     * 1. 读取区块 Hash 和交易列表，得到转账或合约调用内容。<br>
+     * 2. 有交易才读取执行回执，得到实际产生的 Transfer 日志；空区块跳过这次请求。<br>
+     * 3. 再读取同一高度的区块头，比较 Hash，确认本次读取期间区块未发生变化。
      * </p>
-     * <p>前两次请求都需要：区块包含交易内容，但不包含执行产生的 Transfer 日志，
-     * USDT／TRC20 转账要从回执日志中识别。第三次请求用于检查前两次读取之间是否发生分叉。
-     * 三次请求都使用同一个 FullNode，任意一次失败或 Hash 改变，本次读取整体失败，由节点管理器处理重试。</p>
+     * <p>有交易时需要读取区块和回执：区块包含交易内容，但不包含执行产生的 Transfer 日志，
+     * USDT／TRC20 转账要从回执日志中识别。最后一次请求用于检查读取期间是否发生分叉。
+     * 有交易请求三次，空区块请求两次，都使用同一个 FullNode。
+     * 任意一次失败或 Hash 改变，本次读取整体失败，由节点管理器处理重试。</p>
      *
      * @param endpoint    本次读取使用的 FullNode
      * @param blockHeight 要读取的区块高度
@@ -129,22 +130,13 @@ public class TronNodeClient {
         BlockHeader blockHeader = readBlockHeader(blockResponse, blockHeight);
         List<TronTransaction> transactions = readTransactions(blockResponse.path("transactions"));
 
-        // 2. 第二次请求：读取执行回执，拿到 USDT／TRC20 实际转账的 Transfer 日志。
-        // 区块里只有交易内容，没有这些日志，因此只请求第一次会漏掉合约执行产生的转账。
-        JsonNode receiptResponse = httpTransport.post(endpoint, TRANSACTION_INFO_BY_BLOCK_PATH, requestBody);
-        Map<String, TronTransactionReceipt> receipts = readReceipts(receiptResponse, blockHeight);
+        // 2. 有交易才读取回执，拿到 TRC20 的 Transfer 日志；完全没有交易则直接跳过。
+        Map<String, TronTransactionReceipt> receipts = transactions.isEmpty()
+            ? Map.of()
+            : fetchReceipts(endpoint, blockHeight, transactions);
 
-        // 两次读取的交易与回执必须按交易 ID 完整对应，缺少或多出回执都不能继续解析。
-        boolean completeReceipts = transactions.stream()
-            .map(TronTransaction::transactionId)
-            .allMatch(receipts::containsKey)
-            && receipts.size() == transactions.size();
-        if (!completeReceipts) {
-            throw BizException.of(ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
-        }
-
-        // 3. 第三次请求：detail=false 只读同一高度的区块头，与第一次的 Hash 比较。
-        // 前两次是独立请求，期间可能分叉。例如第一次是 100/A，第三次变为 100/B，
+        // 3. 最后一次请求：detail=false 只读区块头，与第一次的 Hash 比较。空区块也要核对。
+        // 读取期间可能分叉。例如第一次是 100/A，最后一次变为 100/B，
         // 就丢弃本次区块和回执，由节点管理器整块重读，避免混用不同分支的数据。
         TronNodeHeight currentBlock = getBlockHeaderByHeight(endpoint, blockHeight);
         BizAssert.isTrue(blockHeader.blockId().equals(currentBlock.blockId()),
@@ -158,6 +150,19 @@ public class TronNodeClient {
             blockHeader.blockTimestamp(),
             transactions,
             receipts);
+    }
+
+    private Map<String, TronTransactionReceipt> fetchReceipts(TronNodeEndpointProperties endpoint,
+                                                              long blockHeight,
+                                                              List<TronTransaction> transactions) {
+        JsonNode response = httpTransport.post(endpoint, TRANSACTION_INFO_BY_BLOCK_PATH, blockRequest(blockHeight));
+        Map<String, TronTransactionReceipt> receipts = readReceipts(response, blockHeight);
+
+        // 交易与回执必须按交易 ID 完整对应，缺少或多出回执都不能继续解析。
+        boolean completeReceipts = receipts.size() == transactions.size()
+            && transactions.stream().map(TronTransaction::transactionId).allMatch(receipts::containsKey);
+        BizAssert.isTrue(completeReceipts, ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
+        return receipts;
     }
 
     private BlockHeader readBlockHeader(JsonNode response, Long requestedHeight) {
