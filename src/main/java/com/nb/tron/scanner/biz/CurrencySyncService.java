@@ -7,6 +7,7 @@ import com.nb.tron.scanner.enums.TronTokenStandard;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
 import com.nb.tron.scanner.model.TronCurrencyConfig;
+import com.nb.tron.scanner.support.TronAddressCodec;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,12 +32,14 @@ public class CurrencySyncService {
 
     private final TronCurrencyIndex currencyIndex;
 
+    private final TronAddressCodec addressCodec;
+
     /**
      * 刷新 Scanner 使用的完整币种快照。
      *
      * <p>
      * 1.拉取完整配置；
-     * 2.逐条校验并转换；
+     * 2.逐条校验并转换，TRC20 合约必须使用标准 Base58Check 地址；
      * 3.全部成功后原子替换内存快照。
      * 任一步失败都保留上一版快照。
      * </p>
@@ -75,8 +78,9 @@ public class CurrencySyncService {
 
     private boolean isValidContract(String contractAddress,
                                     TronTokenStandard tokenStandard) {
+        // 原生币使用空合约；TRC20 必须配置标准 Base58Check 地址，才能匹配解析后的合约地址。
         return tokenStandard == TronTokenStandard.NATIVE
             ? contractAddress != null && contractAddress.isEmpty()
-            : StringUtils.hasText(contractAddress);
+            : addressCodec.isValidBase58Check(contractAddress);
     }
 }
