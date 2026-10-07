@@ -19,6 +19,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import static com.nb.tron.scanner.constant.TronConstants.DEPOSIT_MESSAGE_BATCH_SIZE;
+
 /**
  * 充值发现消息发布器
  *
@@ -37,25 +39,40 @@ public class DepositDiscoveryPublisher {
     private final KafkaPublisher kafkaPublisher;
 
     /**
-     * 发送一个区块内发现的全部充值，并等待 Broker 确认。
-     * 发送失败或等待超时会抛出异常，调用方不能推进扫描检查点。
+     * 按每条最多 300 笔发送本区块的全部充值，并等待 Broker 确认。
+     *
+     * <p>拆分原因：同一区块的充值过多时，单条消息可能超过 Kafka 的大小限制，
+     * 导致每次重扫都发送失败，扫描进度一直停在这个区块。
+     * 按每条最多 300 笔拆分，为消息大小预留余量。</p>
+     *
+     * <p>例如 650 笔拆成 300、300、50 三条消息，依次发送并等待 ACK。
+     * 全部成功后才正常返回；中途失败立即结束，调用方不能推进扫描检查点，
+     * 下轮重扫时重新发送本区块的全部消息。</p>
      *
      * @param blockData 当前区块数据
      * @param deposits  当前区块识别出的充值事实
      */
     public void publishAndWait(TronBlockData blockData, List<TronDepositEvent> deposits) {
-        HeadScanStatistics.timeKafkaAck(() -> sendAndWaitForAck(blockData, deposits));
+        HeadScanStatistics.timeKafkaAck(() -> publishBatches(blockData, deposits));
+    }
+
+    private void publishBatches(TronBlockData blockData, List<TronDepositEvent> deposits) {
+        // 1. 按原始顺序每 300 笔分一组；最后一组不足 300 笔也正常发送。
+        for (int start = 0; start < deposits.size(); start += DEPOSIT_MESSAGE_BATCH_SIZE) {
+            int end = Math.min(start + DEPOSIT_MESSAGE_BATCH_SIZE, deposits.size());
+            // 2. 当前组收到 ACK 才发送下一组；任一组失败就抛出异常，停止后续发送。
+            sendAndWaitForAck(blockData, deposits.subList(start, end));
+        }
     }
 
     private void sendAndWaitForAck(TronBlockData blockData, List<TronDepositEvent> deposits) {
-        // 1. 同一区块的充值合成一条消息，带上区块高度、Hash 和每笔充值的信息。
+        // 每条消息携带相同的区块信息，deposits 只包含当前组的充值。
         ObservedBlockEvent blockEvent = toBlockEvent(blockData, deposits);
         try {
-            // 2. 发送后等待 Broker ACK；未确认成功时，调用方不能推进扫描进度。
             kafkaPublisher.publish(ChainKafkaTopics.DEPOSIT_DISCOVERED, blockEvent.messageKey(), blockEvent)
                 .get(scannerProperties.getKafkaAckTimeout().toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException exception) {
-            // 3. 任务线程被中断时保留中断标记；所有发送失败都向外抛出，结束本轮。
+            // 任务线程被中断时保留中断标记，结束本轮。
             Thread.currentThread().interrupt();
             throw publishFailed(blockData, exception);
         } catch (ExecutionException exception) {

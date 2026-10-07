@@ -340,6 +340,34 @@ class HeadBlockScanAcceptanceTest {
     }
 
     @Test
+    void shouldKeepCheckpointAndReplayAllBatchesAfterPartialPublishFailure() {
+        chain.put(100L, sample(100, "h100", "h99", 650));
+        properties.setMaxBlocksPerRun(1);
+        afterAck = () -> {
+            nextPublishFailure = new IllegalStateException("第二条消息 ACK 失败");
+            afterAck = () -> { };
+        };
+
+        // 300 笔已发送，第二组失败：第三组不发送，摘要和进度都不能保存。
+        assertThatThrownBy(job::runRound).isInstanceOf(BizException.class);
+        assertThat(sentEvents).extracting(event -> event.getDeposits().size()).containsExactly(300, 300);
+        assertCheckpoint(99, "h99");
+        assertThat(database.blocks().findByHeight("MAINNET", 100)).isNull();
+
+        // 重启后重新发送整个区块；300、300、50 全部 ACK 后，才推进到 100。
+        restartScanner();
+        assertThat(job.runRound()).isEqualTo(1);
+        assertThat(sentEvents).extracting(event -> event.getDeposits().size())
+            .containsExactly(300, 300, 300, 300, 50);
+        assertThat(sentEvents.get(0)).isEqualTo(sentEvents.get(2));
+        assertThat(sentEvents.get(1)).isEqualTo(sentEvents.get(3));
+        assertThat(sentEvents.subList(2, 5).stream().flatMap(event -> event.getDeposits().stream())
+            .map(event -> event.getTxId()).distinct().toList()).hasSize(650);
+        assertCheckpoint(100, "h100");
+        assertThat(database.blocks().findByHeight("MAINNET", 100).getBlockHash()).isEqualTo("h100");
+    }
+
+    @Test
     void shouldResendSameDepositAfterKafkaFailureAndRestart(CapturedOutput output) {
         nextPublishFailure = new IllegalStateException("模拟 Broker ACK 失败");
 
@@ -413,11 +441,13 @@ class HeadBlockScanAcceptanceTest {
         ArrayNode transactions = objectMapper.createArrayNode();
         ArrayNode receipts = objectMapper.createArrayNode();
         for (int index = 0; index < depositCount; index++) {
-            ObjectNode transaction = ((ObjectNode) blockSample.path("transactions").get(index)).deepCopy();
-            String txId = transaction.path("txID").textValue() + "-" + height;
+            // 交替复制 TRX、USDT 样本，每笔使用独立交易 ID，可构造超过 300 笔的区块。
+            int sampleIndex = index % 2;
+            ObjectNode transaction = ((ObjectNode) blockSample.path("transactions").get(sampleIndex)).deepCopy();
+            String txId = transaction.path("txID").textValue() + "-" + height + "-" + index;
             transaction.put("txID", txId);
             transactions.add(transaction);
-            ObjectNode receipt = ((ObjectNode) receiptSample.get(index)).deepCopy();
+            ObjectNode receipt = ((ObjectNode) receiptSample.get(sampleIndex)).deepCopy();
             receipt.put("id", txId);
             receipt.put("blockNumber", height);
             receipts.add(receipt);

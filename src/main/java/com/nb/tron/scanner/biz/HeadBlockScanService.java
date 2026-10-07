@@ -103,7 +103,7 @@ public class HeadBlockScanService {
         // 1. 从区块中解析平台监控地址收到的充值。
         List<TronDepositEvent> deposits = blockParser.parse(blockData);
 
-        // 2. 有充值才发送 Kafka，并等待 ACK；发送失败直接结束，不推进进度。
+        // 2. 有充值才发送 Kafka；本区块全部消息收到 ACK 后才推进进度，中途失败直接结束。
         if (!deposits.isEmpty()) {
             depositPublisher.publishAndWait(blockData, deposits);
         }
