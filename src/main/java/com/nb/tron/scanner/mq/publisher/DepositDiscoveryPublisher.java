@@ -6,6 +6,7 @@ import com.nb.chain.client.event.ObservedBlockEvent;
 import com.nb.core.exception.BizException;
 import com.nb.kafka.core.KafkaPublisher;
 import com.nb.tron.scanner.config.TronScannerProperties;
+import com.nb.tron.scanner.enums.TronTokenStandard;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.model.TronBlockData;
 import com.nb.tron.scanner.model.TronDepositEvent;
@@ -83,8 +84,12 @@ public class DepositDiscoveryPublisher {
     }
 
     private DepositDiscoveryEvent toDepositEvent(TronDepositEvent deposit) {
+        // TRON 的标准判断留在 Scanner；链服务按消息中的资产身份匹配配置。
+        TronTokenStandard tokenStandard = deposit.contractAddress().isEmpty()
+            ? TronTokenStandard.NATIVE : TronTokenStandard.TRC20;
         return new DepositDiscoveryEvent()
             .setCurrency(deposit.currency())
+            .setTokenStandard(tokenStandard.getCode())
             .setContractAddress(deposit.contractAddress())
             .setTxId(deposit.txId())
             .setEventIndex(deposit.eventIndex())

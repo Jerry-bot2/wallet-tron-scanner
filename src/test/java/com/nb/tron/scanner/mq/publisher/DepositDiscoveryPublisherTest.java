@@ -62,8 +62,28 @@ class DepositDiscoveryPublisherTest {
         assertThat(blockEvent.getBlockHash()).isEqualTo("block-100");
         assertThat(blockEvent.getDeposits()).hasSize(1);
         assertThat(blockEvent.getDeposits().getFirst().getTxId()).isEqualTo("tx-1");
+        assertThat(blockEvent.getDeposits().getFirst().getTokenStandard()).isEqualTo("TRC20");
         assertThat(blockEvent.getDeposits().getFirst().getRawAmount())
             .isEqualTo(BigInteger.valueOf(1_000_000L));
+    }
+
+    @Test
+    void shouldPublishNativeCurrencyWithNativeStandard() {
+        KafkaPublisher kafkaPublisher = mock(KafkaPublisher.class);
+        DepositDiscoveryPublisher publisher = new DepositDiscoveryPublisher(new TronScannerProperties(), kafkaPublisher);
+        when(kafkaPublisher.publish(anyString(), anyString(), any()))
+            .thenReturn(CompletableFuture.completedFuture(new KafkaPublishResult(
+                ChainKafkaTopics.DEPOSIT_DISCOVERED, 0, 10L, 100L)));
+        TronDepositEvent nativeDeposit = new TronDepositEvent(
+            "TRON", "MAINNET", "TRX", "", "tx-trx", -1, 100L, "block-100",
+            Instant.parse("2026-10-03T12:00:00Z"), "TSender", "TReceiver", BigInteger.valueOf(1_000_000L));
+
+        publisher.publishAndWait(blockData(), List.of(nativeDeposit));
+
+        ArgumentCaptor<ObservedBlockEvent> eventCaptor = ArgumentCaptor.captor();
+        verify(kafkaPublisher).publish(anyString(), anyString(), eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getDeposits().getFirst().getTokenStandard()).isEqualTo("NATIVE");
+        assertThat(eventCaptor.getValue().getDeposits().getFirst().getContractAddress()).isEmpty();
     }
 
     @Test
