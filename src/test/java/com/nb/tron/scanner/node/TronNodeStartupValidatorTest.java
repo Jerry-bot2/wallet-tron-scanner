@@ -80,7 +80,8 @@ class TronNodeStartupValidatorTest {
             0,
             10L,
             Instant.now(),
-            Instant.now());
+            Instant.now(),
+            System.nanoTime());
     }
 
     private TronNodeRuntimeState unhealthyState(String nodeCode, TronNodeRole nodeRole) {
@@ -92,6 +93,7 @@ class TronNodeStartupValidatorTest {
             3,
             10L,
             null,
-            null);
+            null,
+            0L);
     }
 }

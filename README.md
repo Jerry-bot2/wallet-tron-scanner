@@ -196,3 +196,40 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 1. 在保留摘要中找到最后相同的区块，例如 998。
 2. 一个事务完成：进度退到 998＋删除 998 之后的摘要。
 3. 结束本轮，下轮从 999 重扫。
+
+
+有。按当前代码和默认配置，发现 4 个值得处理的问题，前两个有漏充值风险。主流程可以继续沿用。
+1. 高优先级：消费失败后，消息可能被跳过
+   目前没有配置专门的消费失败处理器。Spring Kafka 默认连续失败 10 次后记录日志并跳过消息；部分消息转换异常第一次就会跳过。官方说明
+   例如：
+   Scanner 发送成功、推进扫描进度
+   → chain-server 数据库暂时不可用
+   → 消费连续失败
+   → 默认跳过消息
+   → 这批充值没有落库，Scanner 也不会自动重发
+   **建议：**数据库等临时故障延迟重试；无法处理的消息暂停并告警，成功落库前不能跳过。
+   位置：[DepositDiscoveryConsumer.java (line 27)](/Volumes/Data/java_project/mypay/wallet-chain-server/chain-biz/src/main/java/com/nb/chain/biz/mq/consumer/DepositDiscoveryConsumer.java:27)
+2. 高优先级：首次启动消费组可能漏掉已有消息
+   当前只配置了消费组，未配置 auto-offset-reset，Kafka 默认是 latest。官方说明
+   Scanner 先发送了充值消息
+   → chain-server 的消费组首次启动，没有历史消费位点
+   → 从最新位置开始
+   → 启动之前的充值消息被跳过
+   **建议：**该充值消费者默认使用 earliest，并保持消费组名称稳定。
+   位置：[application.yml (line 15)](/Volumes/Data/java_project/mypay/wallet-chain-server/chain-service/src/main/resources/application.yml:15)
+3. 重要缺口：分叉重扫后的幂等处理不完整
+   现在查到已有充值就直接 return。
+   例如同一交易原来在 1000，分叉后重新进入 1003：新消息被跳过，数据库仍保存 1000。同一事件金额不同，也会被直接忽略——这两种行为都已复现。
+   建议：
+- 重复事件核对币种、地址、金额。
+- 重新入块的位置，以链上核验结果修正。
+- 下一阶段固化确认不能直接信任首次发现时保存的高度。
+  位置：[DepositDiscoveryService.java (line 67)](/Volumes/Data/java_project/mypay/wallet-chain-server/chain-biz/src/main/java/com/nb/chain/biz/service/DepositDiscoveryService.java:67)
+4. 扫描效率问题：新高度被旧健康快照挡住
+   已复现：
+   健康快照：节点高度 1000
+   实时查询：节点已经到 1001
+   读取 1001：仍按快照 1000 判断，抛出“节点不可用”
+   需要等下一次健康检查更新，才继续扫描。这会产生额外延迟和误报。
+   **建议：**成功读取最新高度后，同步更新该节点的高度快照。
+   位置：[TronNodeManager.java (line 334)](/Volumes/Data/java_project/mypay/wallet-tron-scanner/src/main/java/com/nb/tron/scanner/node/TronNodeManager.java:334)

@@ -70,13 +70,25 @@ public class TronNodeManager {
 
     /**
      * 查询最新 Head 高度，业务代码不需要关心本次使用哪个 FullNode。
+     * 查询成功后同步更新实际响应节点的内存高度，避免旧健康快照挡住本轮扫块。
      */
     public TronNodeHeight getHeadHeight() {
         TronNodeEndpointProperties selectedNode = selectFullNodeForHead();
         return executeReadWithFailover(
             selectedNode,
-            nodeClient::getHeadHeight,
+            this::readHeadHeight,
             this::switchFullNodeForHead);
+    }
+
+    /**
+     * 读取最新高度并更新实际响应节点的快照。
+     * 例如快照为 1000、本次读到 1003：先回写 1003，后续读取 1001 就不会被旧高度挡住。
+     */
+    private TronNodeHeight readHeadHeight(TronNodeEndpointProperties endpoint) {
+        long readStartedAt = System.nanoTime();
+        TronNodeHeight height = nodeClient.getHeadHeight(endpoint);
+        nodeHealthService.updateLatestHeight(height, readStartedAt);
+        return height;
     }
 
     /**

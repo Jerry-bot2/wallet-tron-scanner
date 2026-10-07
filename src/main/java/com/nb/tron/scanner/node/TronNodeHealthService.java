@@ -91,6 +91,18 @@ public class TronNodeHealthService {
         return Optional.ofNullable(nodeStates.get(nodeCode));
     }
 
+    /**
+     * 回写最新高度查询结果，只更新高度，保留当前健康状态和失败次数。
+     * 按实际响应的节点编码更新，主节点失败后由备用节点返回，就更新备用节点。
+     *
+     * @param height        实际响应节点及其最新高度
+     * @param readStartedAt 本次读取开始时间，由 System.nanoTime() 获取
+     */
+    public void updateLatestHeight(TronNodeHeight height, long readStartedAt) {
+        nodeStates.computeIfPresent(height.nodeCode(),
+            (nodeCode, currentState) -> currentState.withLatestHeight(height.blockHeight(), readStartedAt));
+    }
+
     private void refreshNodeState(TronNodeEndpointProperties endpoint) {
         long startedAt = System.nanoTime();
         try {
@@ -102,7 +114,8 @@ public class TronNodeHealthService {
                 currentState,
                 nodeHeight.blockHeight(),
                 responseTimeMillis,
-                Instant.now()));
+                Instant.now(),
+                startedAt));
             log.debug("TRON节点健康检查通过，nodeCode={}，role={}，blockHeight={}，responseTimeMillis={}",
                 endpoint.getCode(),
                 endpoint.getRole(),

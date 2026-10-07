@@ -121,6 +121,75 @@ class TronNodeHealthServiceTest {
         verify(nodeClient, never()).getHeadHeight(wrongNetworkNode);
     }
 
+    @Test
+    void shouldUpdateHeightWithoutResettingHealthState() {
+        TronNodeEndpointProperties fullNode = endpoint("full-primary", TronNodeRole.FULL_NODE);
+        scannerProperties.getNode().setNodes(List.of(fullNode));
+        mockHealthyNode(fullNode, 100L);
+        healthService.refreshNodeStates();
+        when(nodeClient.getHeadHeight(fullNode))
+            .thenThrow(BizException.of(ScannerBizErrCode.TRON_NODE_TIMEOUT));
+        healthService.refreshNodeStates();
+        TronNodeRuntimeState beforeUpdate = healthService.findNodeState(fullNode.getCode()).orElseThrow();
+
+        healthService.updateLatestHeight(height(fullNode, 103L, "block-103"), System.nanoTime());
+
+        TronNodeRuntimeState updated = healthService.findNodeState(fullNode.getCode()).orElseThrow();
+        assertThat(updated.latestBlockHeight()).isEqualTo(103L);
+        assertThat(updated.healthStatus()).isEqualTo(beforeUpdate.healthStatus());
+        assertThat(updated.consecutiveFailureCount()).isEqualTo(1);
+        assertThat(updated.healthySince()).isEqualTo(beforeUpdate.healthySince());
+        assertThat(updated.lastSuccessAt()).isEqualTo(beforeUpdate.lastSuccessAt());
+        assertThat(updated.responseTimeMillis()).isEqualTo(beforeUpdate.responseTimeMillis());
+    }
+
+    @Test
+    void shouldIgnoreHeightFromEarlierRead() {
+        TronNodeEndpointProperties fullNode = endpoint("full-primary", TronNodeRole.FULL_NODE);
+        scannerProperties.getNode().setNodes(List.of(fullNode));
+        mockHealthyNode(fullNode, 100L);
+        healthService.refreshNodeStates();
+        long startedAt = healthService.findNodeState(fullNode.getCode()).orElseThrow().heightReadStartedAt();
+
+        healthService.updateLatestHeight(height(fullNode, 103L, "block-103"), startedAt + 2);
+        healthService.updateLatestHeight(height(fullNode, 101L, "block-101"), startedAt + 1);
+
+        assertThat(healthService.findNodeState(fullNode.getCode()).orElseThrow().latestBlockHeight())
+            .isEqualTo(103L);
+    }
+
+    @Test
+    void shouldKeepNewerHeightWhenEarlierHealthCheckReturnsLater() {
+        TronNodeEndpointProperties fullNode = endpoint("full-primary", TronNodeRole.FULL_NODE);
+        scannerProperties.getNode().setNodes(List.of(fullNode));
+        mockHealthyNode(fullNode, 100L);
+        healthService.refreshNodeStates();
+        when(nodeClient.getHeadHeight(fullNode)).thenAnswer(invocation -> {
+            // 健康检查尚未返回时，扫描查询已经读到 103 并回写；检查随后返回旧高度 100。
+            healthService.updateLatestHeight(height(fullNode, 103L, "block-103"), System.nanoTime());
+            return height(fullNode, 100L, "block-100");
+        });
+
+        healthService.refreshNodeStates();
+
+        TronNodeRuntimeState state = healthService.findNodeState(fullNode.getCode()).orElseThrow();
+        assertThat(state.latestBlockHeight()).isEqualTo(103L);
+        assertThat(state.healthStatus()).isEqualTo(TronNodeHealthStatus.HEALTHY);
+    }
+
+    @Test
+    void shouldAcceptLowerHeightFromNewerRead() {
+        TronNodeEndpointProperties fullNode = endpoint("full-primary", TronNodeRole.FULL_NODE);
+        scannerProperties.getNode().setNodes(List.of(fullNode));
+        mockHealthyNode(fullNode, 100L);
+        healthService.refreshNodeStates();
+
+        healthService.updateLatestHeight(height(fullNode, 99L, "block-99"), System.nanoTime());
+
+        assertThat(healthService.findNodeState(fullNode.getCode()).orElseThrow().latestBlockHeight())
+            .isEqualTo(99L);
+    }
+
     private void mockHealthyNode(TronNodeEndpointProperties endpoint, long blockHeight) {
         mockGenesisBlock(endpoint);
         TronNodeHeight latestBlock = height(endpoint, blockHeight, "block-" + blockHeight);

@@ -150,8 +150,8 @@ class HeadBlockScanRecoveryTest {
         TronNodeClient client = mock(TronNodeClient.class);
         Instant healthySince = Instant.now().minusSeconds(120);
         when(health.getNodeStates()).thenReturn(List.of(
-            TronNodeRuntimeState.success(primary.getCode(), TronNodeRole.FULL_NODE, null, 1011, 1, healthySince),
-            TronNodeRuntimeState.success(backup.getCode(), TronNodeRole.FULL_NODE, null, 1011, 1, healthySince)));
+            TronNodeRuntimeState.success(primary.getCode(), TronNodeRole.FULL_NODE, null, 1011, 1, healthySince, System.nanoTime()),
+            TronNodeRuntimeState.success(backup.getCode(), TronNodeRole.FULL_NODE, null, 1011, 1, healthySince, System.nanoTime())));
         TronNodeManager realManager = new TronNodeManager(properties, health, client);
         when(client.getHeadHeight(any())).thenReturn(height(1011));
         when(client.getBlockHeaderByHeight(any(), eq(1010L))).thenReturn(height(1010));

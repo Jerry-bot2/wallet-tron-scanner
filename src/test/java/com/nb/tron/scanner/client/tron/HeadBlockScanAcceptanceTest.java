@@ -140,7 +140,7 @@ class HeadBlockScanAcceptanceTest {
         nodeClient = new TronNodeClient(new TronHttpTransport(jsonCodec, HttpClient.newHttpClient(), properties));
         healthService = mock(TronNodeHealthService.class);
         when(healthService.getNodeStates()).thenReturn(List.of(TronNodeRuntimeState.success(
-            endpoint.getCode(), TronNodeRole.FULL_NODE, null, 106, 1, Instant.now().minusSeconds(120))));
+            endpoint.getCode(), TronNodeRole.FULL_NODE, null, 106, 1, Instant.now().minusSeconds(120), System.nanoTime())));
 
         addressIndex = mock(TronAddressIndex.class);
         when(addressIndex.isReady()).thenReturn(true);
@@ -369,7 +369,7 @@ class HeadBlockScanAcceptanceTest {
         }
         properties.setStartBlockHeight(194L);
         when(healthService.getNodeStates()).thenReturn(List.of(TronNodeRuntimeState.success(
-            endpoint.getCode(), TronNodeRole.FULL_NODE, null, 200, 1, Instant.now().minusSeconds(120))));
+            endpoint.getCode(), TronNodeRole.FULL_NODE, null, 200, 1, Instant.now().minusSeconds(120), System.nanoTime())));
         restartScanner();
     }
 

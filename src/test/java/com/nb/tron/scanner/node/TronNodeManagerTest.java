@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -58,6 +59,47 @@ class TronNodeManagerTest {
         when(nodeClient.getHeadHeight(primary)).thenReturn(expected);
 
         assertThat(nodeManager.getHeadHeight()).isSameAs(expected);
+    }
+
+    @Test
+    void shouldReadNewBlockBeforeNextHealthCheck() {
+        TronNodeEndpointProperties primary = endpoint("full-primary", TronNodeRole.FULL_NODE, 1);
+        scannerProperties.getNode().setNodes(List.of(primary));
+        initializeRealNodeHealth();
+        when(nodeClient.getHeadHeight(primary)).thenReturn(nodeHeight(primary, 1003L));
+        TronBlockData expected = blockData(primary, 1001L);
+        when(nodeClient.getBlockDataByHeight(primary, 1001L)).thenReturn(expected);
+
+        // 上次检查只到 1000，本轮读到 1003 后，应立即能够读取 1001，不用等健康检查刷新。
+        assertThat(nodeManager.getHeadHeight().blockHeight()).isEqualTo(1003L);
+        assertThat(nodeManager.getBlockDataByHeight(1001L)).isSameAs(expected);
+        assertThat(nodeHealthService.findNodeState(primary.getCode()).orElseThrow().latestBlockHeight())
+            .isEqualTo(1003L);
+        verify(nodeClient, times(2)).getHeadHeight(primary);
+        verify(nodeClient).getBlockHeaderByHeight(primary, 0L);
+    }
+
+    @Test
+    void shouldUpdateBackupHeightAfterFailover() {
+        TronNodeEndpointProperties primary = endpoint("full-primary", TronNodeRole.FULL_NODE, 1);
+        TronNodeEndpointProperties backup = endpoint("full-backup", TronNodeRole.FULL_NODE, 2);
+        scannerProperties.getNode().setNodes(List.of(primary, backup));
+        initializeRealNodeHealth();
+        when(nodeClient.getHeadHeight(primary))
+            .thenThrow(BizException.of(ScannerBizErrCode.TRON_NODE_TIMEOUT));
+        when(nodeClient.getHeadHeight(backup)).thenReturn(nodeHeight(backup, 1003L));
+        TronBlockData expected = blockData(backup, 1001L);
+        when(nodeClient.getBlockDataByHeight(backup, 1001L)).thenReturn(expected);
+
+        assertThat(nodeManager.getHeadHeight().nodeCode()).isEqualTo(backup.getCode());
+        assertThat(nodeManager.getBlockDataByHeight(1001L)).isSameAs(expected);
+        assertThat(nodeHealthService.findNodeState(primary.getCode()).orElseThrow().latestBlockHeight())
+            .isEqualTo(1000L);
+        assertThat(nodeHealthService.findNodeState(backup.getCode()).orElseThrow().latestBlockHeight())
+            .isEqualTo(1003L);
+        verify(nodeClient, times(2)).getHeadHeight(primary);
+        verify(nodeClient, times(2)).getHeadHeight(backup);
+        verify(nodeClient, never()).getBlockDataByHeight(primary, 1001L);
     }
 
     @Test
@@ -360,6 +402,17 @@ class TronNodeManagerTest {
         verifyNoInteractions(nodeClient);
     }
 
+    private void initializeRealNodeHealth() {
+        scannerProperties.setExpectedGenesisBlockId("block-0");
+        for (TronNodeEndpointProperties endpoint : scannerProperties.getNode().getNodes()) {
+            when(nodeClient.getBlockHeaderByHeight(endpoint, 0L)).thenReturn(nodeHeight(endpoint, 0L));
+            when(nodeClient.getHeadHeight(endpoint)).thenReturn(nodeHeight(endpoint, 1000L));
+        }
+        nodeHealthService = new TronNodeHealthService(scannerProperties, nodeClient);
+        nodeHealthService.refreshNodeStates();
+        nodeManager = new TronNodeManager(scannerProperties, nodeHealthService, nodeClient);
+    }
+
     private TronNodeEndpointProperties endpoint(String code, TronNodeRole role, int priority) {
         TronNodeEndpointProperties endpoint = new TronNodeEndpointProperties();
         endpoint.setCode(code);
@@ -380,7 +433,8 @@ class TronNodeManagerTest {
             0,
             10L,
             Instant.now(),
-            healthySince);
+            healthySince,
+            System.nanoTime());
     }
 
     private TronNodeRuntimeState unhealthyState(TronNodeEndpointProperties endpoint) {
@@ -392,7 +446,8 @@ class TronNodeManagerTest {
             3,
             10L,
             null,
-            null);
+            null,
+            0L);
     }
 
     private TronNodeHeight nodeHeight(TronNodeEndpointProperties endpoint, long blockHeight) {
