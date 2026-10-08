@@ -96,10 +96,24 @@ class AddressSyncClientTest {
             .isEqualTo(ScannerBizErrCode.ADDRESS_SYNC_ACK_FAILED);
     }
 
+    @Test
+    void shouldRejectAddressPageFromAnotherNetwork() {
+        ScannerAddressPageResp addressPage = page(List.of(), 10L, false)
+            .setChainNetwork("NILE");
+        when(chainScannerClient.listAddresses("TRON", 10L)).thenReturn(Result.success(addressPage));
+
+        assertThatThrownBy(() -> addressSyncClient.pullNextPage(10L))
+            .isInstanceOf(BizException.class)
+            .extracting(exception -> ((BizException) exception).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.ADDRESS_SYNC_PAGE_INVALID);
+    }
+
     private ScannerAddressPageResp page(List<ScannerAddressResp> addresses,
                                         long maxAddressId,
                                         boolean hasMore) {
         return new ScannerAddressPageResp()
+            .setChainCode("TRON")
+            .setChainNetwork("MAINNET")
             .setAddresses(addresses)
             .setMaxAddressId(maxAddressId)
             .setHasMore(hasMore);

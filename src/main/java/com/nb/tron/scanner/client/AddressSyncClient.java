@@ -11,6 +11,7 @@ import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.Objects;
 
 /**
  * 链服务地址同步客户端。
@@ -39,6 +40,7 @@ public class AddressSyncClient {
         BizAssert.isTrue(result != null && result.successful(), ScannerBizErrCode.ADDRESS_SYNC_REMOTE_CALL_FAILED);
 
         ScannerAddressPageResp addressPage = result.getData();
+        validateScope(addressPage);
         validateCursor(addressPage, afterAddressId);
         return addressPage;
     }
@@ -57,6 +59,16 @@ public class AddressSyncClient {
     }
 
     /**
+     * Chain Server 决定当前环境使用的网络，Scanner 只核对响应是否与自身运行网络一致。
+     */
+    private void validateScope(ScannerAddressPageResp addressPage) {
+        BizAssert.notNull(addressPage, ScannerBizErrCode.ADDRESS_SYNC_PAGE_INVALID);
+        boolean sameScope = Objects.equals(scannerProperties.getChainCode(), addressPage.getChainCode())
+            && Objects.equals(scannerProperties.getChainNetwork(), addressPage.getChainNetwork());
+        BizAssert.isTrue(sameScope, ScannerBizErrCode.ADDRESS_SYNC_PAGE_INVALID);
+    }
+
+    /**
      * 校验地址分页游标。
      *
      * <p>
@@ -65,8 +77,6 @@ public class AddressSyncClient {
      * </p>
      */
     private void validateCursor(ScannerAddressPageResp addressPage, long afterAddressId) {
-        BizAssert.notNull(addressPage, ScannerBizErrCode.ADDRESS_SYNC_PAGE_INVALID);
-
         long lastAddressId = afterAddressId;
         for (ScannerAddressResp address : addressPage.getAddresses()) {
             Long addressId = address.getAddressId();
