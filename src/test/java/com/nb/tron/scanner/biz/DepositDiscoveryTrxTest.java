@@ -1,19 +1,17 @@
-package com.nb.tron.scanner.parser;
+package com.nb.tron.scanner.biz;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nb.chain.client.enums.AddressPurpose;
 import com.nb.core.exception.BizException;
 import com.nb.tron.scanner.config.TronScannerProperties;
-import com.nb.tron.scanner.enums.TronTokenStandard;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
-import com.nb.tron.scanner.model.TronBlockData;
 import com.nb.tron.scanner.model.TronCurrencyConfig;
 import com.nb.tron.scanner.model.TronDepositEvent;
-import com.nb.tron.scanner.model.TronTransaction;
-import com.nb.tron.scanner.support.JsonCodec;
-import com.nb.tron.scanner.support.TronAddressCodec;
+import com.nb.tron.sdk.enums.TronTokenStandard;
+import com.nb.tron.sdk.model.TronBlockData;
+import com.nb.tron.sdk.model.TronTransaction;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -31,7 +29,7 @@ import static org.mockito.Mockito.when;
  * Author: bin jack
  * Date: 03.10.26
  */
-class TrxTransferParserTest {
+class DepositDiscoveryTrxTest {
 
     private static final String FROM_HEX =
         "410000000000000000000000000000000000000000";
@@ -46,7 +44,7 @@ class TrxTransferParserTest {
 
     private TronCurrencyIndex currencyIndex;
 
-    private TrxTransferParser transferParser;
+    private DepositDiscoveryService discoveryService;
 
     @BeforeEach
     void setUp() {
@@ -57,12 +55,8 @@ class TrxTransferParserTest {
             TronTokenStandard.NATIVE,
             "",
             6)));
-        transferParser = new TrxTransferParser(
-            new JsonCodec(new ObjectMapper()),
-            new TronAddressCodec(),
-            addressIndex,
-            currencyIndex,
-            new TronScannerProperties());
+        discoveryService = new DepositDiscoveryService(new com.nb.tron.sdk.parser.TronBlockParser(new ObjectMapper()),
+            addressIndex, currencyIndex, new TronScannerProperties());
     }
 
     @Test
@@ -70,7 +64,7 @@ class TrxTransferParserTest {
         when(addressIndex.findPurpose(TO_BASE58)).thenReturn(AddressPurpose.DEPOSIT);
         TronTransaction transaction = transaction("SUCCESS", 1_000_000L);
 
-        List<TronDepositEvent> events = transferParser.parse(block(transaction), transaction);
+        List<TronDepositEvent> events = discoveryService.discover(block(transaction));
 
         assertThat(events).singleElement().satisfies(event -> {
             assertThat(event.chainCode()).isEqualTo("TRON");
@@ -89,18 +83,18 @@ class TrxTransferParserTest {
     @Test
     void shouldIgnoreFailedTransferAndNonDepositAddress() {
         TronTransaction failedTransaction = transaction("REVERT", 1_000_000L);
-        assertThat(transferParser.parse(block(failedTransaction), failedTransaction)).isEmpty();
+        assertThat(discoveryService.discover(block(failedTransaction))).isEmpty();
 
         TronTransaction externalTransaction = transaction("SUCCESS", 1_000_000L);
         when(addressIndex.findPurpose(TO_BASE58)).thenReturn(null);
-        assertThat(transferParser.parse(block(externalTransaction), externalTransaction)).isEmpty();
+        assertThat(discoveryService.discover(block(externalTransaction))).isEmpty();
     }
 
     @Test
     void shouldRejectInvalidTransferAmount() {
         TronTransaction transaction = transaction("SUCCESS", 0L);
 
-        assertThatThrownBy(() -> transferParser.parse(block(transaction), transaction))
+        assertThatThrownBy(() -> discoveryService.discover(block(transaction)))
             .isInstanceOf(BizException.class)
             .extracting(exception -> ((BizException) exception).getErrorCode())
             .isEqualTo(ScannerBizErrCode.TRON_TRANSACTION_INVALID);
@@ -132,6 +126,6 @@ class TrxTransferParserTest {
             "block-99",
             Instant.parse("2026-10-03T10:00:00Z"),
             List.of(transaction),
-            Map.of());
+            Map.of(transaction.transactionId(), new com.nb.tron.sdk.model.TronTransactionReceipt(transaction.transactionId(), 100L, "{}")));
     }
 }

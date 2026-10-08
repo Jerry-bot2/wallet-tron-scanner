@@ -5,9 +5,9 @@ import com.nb.core.exception.BizException;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

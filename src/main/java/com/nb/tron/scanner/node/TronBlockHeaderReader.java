@@ -1,9 +1,11 @@
 package com.nb.tron.scanner.node;
 
 import com.nb.core.exception.BizException;
-import com.nb.tron.scanner.client.tron.TronNodeClient;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
-import com.nb.tron.scanner.model.TronNodeHeight;
+import com.nb.tron.scanner.support.HeadScanStatistics;
+import com.nb.tron.scanner.support.TronSdkCalls;
+import com.nb.tron.sdk.client.TronNodeClient;
+import com.nb.tron.sdk.model.TronNodeHeight;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 
@@ -25,7 +27,8 @@ public class TronBlockHeaderReader {
 
     public TronNodeHeight getBlockHeaderByHeight(long blockHeight) {
         try {
-            return nodeClient.getBlockHeaderByHeight(endpoint, blockHeight);
+            return HeadScanStatistics.timeNodeRead(() -> TronSdkCalls.execute(
+                () -> nodeClient.getBlockHeaderByHeight(endpoint.toSdkEndpoint(), blockHeight)));
         } catch (BizException exception) {
             onReadFailure.run();
             throw exception;

@@ -1,12 +1,13 @@
 package com.nb.tron.scanner.node;
 
 import com.nb.core.exception.BizException;
-import com.nb.tron.scanner.client.tron.TronNodeClient;
+import com.nb.tron.scanner.support.TronSdkCalls;
+import com.nb.tron.sdk.client.TronNodeClient;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
-import com.nb.tron.scanner.enums.TronNodeRole;
+import com.nb.tron.sdk.enums.TronNodeRole;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
-import com.nb.tron.scanner.model.TronNodeHeight;
+import com.nb.tron.sdk.model.TronNodeHeight;
 import com.nb.tron.scanner.model.TronNodeRuntimeState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,7 +22,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import static com.nb.tron.scanner.constant.TronConstants.GENESIS_BLOCK_HEIGHT;
+import static com.nb.tron.sdk.constant.TronTransactionConstants.GENESIS_BLOCK_HEIGHT;
 
 /**
  * TRON 节点健康服务: 定时维护每个节点的健康状态和节点高度
@@ -106,7 +107,7 @@ public class TronNodeHealthService {
     private void refreshNodeState(TronNodeEndpointProperties endpoint) {
         long startedAt = System.nanoTime();
         try {
-            TronNodeHeight nodeHeight = probeNode(endpoint);
+            TronNodeHeight nodeHeight = TronSdkCalls.execute(() -> probeNode(endpoint));
             long responseTimeMillis = elapsedMillis(startedAt);
             nodeStates.compute(endpoint.getCode(), (nodeCode, currentState) -> TronNodeRuntimeState.success(
                 endpoint.getCode(),
@@ -135,13 +136,13 @@ public class TronNodeHealthService {
     private TronNodeHeight probeNode(TronNodeEndpointProperties endpoint) {
         validateNetwork(endpoint);
         if (endpoint.getRole() == TronNodeRole.FULL_NODE) {
-            return nodeClient.getHeadHeight(endpoint);
+            return nodeClient.getHeadHeight(endpoint.toSdkEndpoint());
         }
-        return nodeClient.getSolidHeight(endpoint);
+        return nodeClient.getSolidHeight(endpoint.toSdkEndpoint());
     }
 
     private void validateNetwork(TronNodeEndpointProperties endpoint) {
-        TronNodeHeight genesisBlock = nodeClient.getBlockHeaderByHeight(endpoint, GENESIS_BLOCK_HEIGHT);
+        TronNodeHeight genesisBlock = nodeClient.getBlockHeaderByHeight(endpoint.toSdkEndpoint(), GENESIS_BLOCK_HEIGHT);
         if (!scannerProperties.getExpectedGenesisBlockId().equalsIgnoreCase(genesisBlock.blockId())) {
             throw BizException.of(ScannerBizErrCode.TRON_NODE_NETWORK_MISMATCH);
         }

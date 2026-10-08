@@ -7,11 +7,10 @@ import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
 import com.nb.tron.scanner.model.HeadBlockCheckResult;
-import com.nb.tron.scanner.model.TronBlockData;
+import com.nb.tron.sdk.model.TronBlockData;
 import com.nb.tron.scanner.model.TronDepositEvent;
 import com.nb.tron.scanner.mq.publisher.DepositDiscoveryPublisher;
 import com.nb.tron.scanner.node.TronNodeManager;
-import com.nb.tron.scanner.parser.TronBlockParser;
 import com.nb.tron.scanner.support.HeadScanStatistics;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -33,7 +32,7 @@ public class HeadBlockScanService {
     private final TronAddressIndex addressIndex;
     private final TronCurrencyIndex currencyIndex;
     private final TronNodeManager nodeManager;
-    private final TronBlockParser blockParser;
+    private final DepositDiscoveryService depositDiscoveryService;
     private final DepositDiscoveryPublisher depositPublisher;
     private final HeadBlockContinuityService continuityService;
     private final HeadScanProgressService progressService;
@@ -101,7 +100,7 @@ public class HeadBlockScanService {
      */
     private TronScanCheckpoint processBlock(TronScanCheckpoint checkpoint, TronBlockData blockData) {
         // 1. 从区块中解析平台监控地址收到的充值。
-        List<TronDepositEvent> deposits = blockParser.parse(blockData);
+        List<TronDepositEvent> deposits = depositDiscoveryService.discover(blockData);
 
         // 2. 有充值才发送 Kafka；本区块全部消息收到 ACK 后才推进进度，中途失败直接结束。
         if (!deposits.isEmpty()) {

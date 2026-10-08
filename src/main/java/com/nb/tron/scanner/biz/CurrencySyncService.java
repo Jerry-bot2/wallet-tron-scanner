@@ -2,12 +2,13 @@ package com.nb.tron.scanner.biz;
 
 import com.nb.chain.client.resp.ScannerCurrencyResp;
 import com.nb.core.exception.BizAssert;
+import com.nb.tron.scanner.support.TronSdkCalls;
 import com.nb.tron.scanner.client.CurrencySyncClient;
-import com.nb.tron.scanner.enums.TronTokenStandard;
+import com.nb.tron.sdk.enums.TronTokenStandard;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
 import com.nb.tron.scanner.model.TronCurrencyConfig;
-import com.nb.tron.scanner.support.TronAddressCodec;
+import com.nb.tron.sdk.codec.TronAddressCodec;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -81,6 +82,6 @@ public class CurrencySyncService {
         // 原生币使用空合约；TRC20 必须配置标准 Base58Check 地址，才能匹配解析后的合约地址。
         return tokenStandard == TronTokenStandard.NATIVE
             ? contractAddress != null && contractAddress.isEmpty()
-            : addressCodec.isValidBase58Check(contractAddress);
+            : TronSdkCalls.execute(() -> addressCodec.isValidBase58Check(contractAddress));
     }
 }

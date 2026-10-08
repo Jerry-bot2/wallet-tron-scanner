@@ -9,13 +9,12 @@ import com.nb.chain.client.event.ObservedBlockEvent;
 import com.nb.core.exception.BizException;
 import com.nb.kafka.core.KafkaPublishResult;
 import com.nb.kafka.core.KafkaPublisher;
+import com.nb.tron.scanner.biz.DepositDiscoveryService;
 import com.nb.tron.scanner.biz.HeadBlockAncestorFinder;
-import com.nb.tron.scanner.biz.HeadBlockScanService;
 import com.nb.tron.scanner.biz.HeadBlockContinuityService;
+import com.nb.tron.scanner.biz.HeadBlockScanService;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
-import com.nb.tron.scanner.enums.TronNodeRole;
-import com.nb.tron.scanner.enums.TronTokenStandard;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
@@ -25,12 +24,13 @@ import com.nb.tron.scanner.model.TronNodeRuntimeState;
 import com.nb.tron.scanner.mq.publisher.DepositDiscoveryPublisher;
 import com.nb.tron.scanner.node.TronNodeHealthService;
 import com.nb.tron.scanner.node.TronNodeManager;
-import com.nb.tron.scanner.parser.Trc20TransferParser;
-import com.nb.tron.scanner.parser.TronBlockParser;
-import com.nb.tron.scanner.parser.TrxTransferParser;
 import com.nb.tron.scanner.support.HeadScanTestDatabase;
-import com.nb.tron.scanner.support.JsonCodec;
-import com.nb.tron.scanner.support.TronAddressCodec;
+import com.nb.tron.sdk.client.TronHttpTransport;
+import com.nb.tron.sdk.client.TronNodeClient;
+import com.nb.tron.sdk.codec.JsonCodec;
+import com.nb.tron.sdk.codec.TronAddressCodec;
+import com.nb.tron.sdk.enums.TronNodeRole;
+import com.nb.tron.sdk.enums.TronTokenStandard;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -87,7 +87,7 @@ class HeadBlockScanAcceptanceTest {
     private TronNodeHealthService healthService;
     private TronAddressIndex addressIndex;
     private TronCurrencyIndex currencyIndex;
-    private TronBlockParser parser;
+    private DepositDiscoveryService parser;
     private DepositDiscoveryPublisher publisher;
     private TestScanJob job;
     private ObjectNode blockSample;
@@ -137,7 +137,7 @@ class HeadBlockScanAcceptanceTest {
         properties.getNode().setNodes(List.of(endpoint));
         JsonCodec jsonCodec = new JsonCodec(objectMapper);
         TronAddressCodec addressCodec = new TronAddressCodec();
-        nodeClient = new TronNodeClient(new TronHttpTransport(jsonCodec, HttpClient.newHttpClient(), properties));
+        nodeClient = new TronNodeClient(new TronHttpTransport(HttpClient.newHttpClient(), jsonCodec, properties.getNode().getReadTimeout(), properties.getNode().getMaxResponseSize().toBytes()));
         healthService = mock(TronNodeHealthService.class);
         when(healthService.getNodeStates()).thenReturn(List.of(TronNodeRuntimeState.success(
             endpoint.getCode(), TronNodeRole.FULL_NODE, null, 106, 1, Instant.now().minusSeconds(120), System.nanoTime())));
@@ -150,9 +150,7 @@ class HeadBlockScanAcceptanceTest {
         currencyIndex.replaceAll(List.of(
             new TronCurrencyConfig("TRX", TronTokenStandard.NATIVE, "", 6),
             new TronCurrencyConfig("USDT", TronTokenStandard.TRC20, "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", 6)));
-        parser = new TronBlockParser(
-            new TrxTransferParser(jsonCodec, addressCodec, addressIndex, currencyIndex, properties),
-            new Trc20TransferParser(jsonCodec, addressCodec, addressIndex, currencyIndex, properties));
+        parser = new DepositDiscoveryService(new com.nb.tron.sdk.parser.TronBlockParser(objectMapper), addressIndex, currencyIndex, properties);
         KafkaPublisher kafka = mock(KafkaPublisher.class);
         when(kafka.publish(anyString(), anyString(), any())).thenAnswer(invocation -> {
             ObservedBlockEvent event = invocation.getArgument(2);

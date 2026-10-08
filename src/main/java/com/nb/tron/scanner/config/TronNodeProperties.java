@@ -5,6 +5,10 @@ import lombok.Setter;
 import org.springframework.util.unit.DataSize;
 
 import java.time.Duration;
+
+import static com.nb.tron.sdk.constant.TronHttpConstants.CONNECT_TIMEOUT;
+import static com.nb.tron.sdk.constant.TronHttpConstants.READ_TIMEOUT;
+import static com.nb.tron.sdk.constant.TronHttpConstants.MAX_RESPONSE_BYTES;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -21,17 +25,17 @@ public class TronNodeProperties {
     /**
      * 建立节点连接的最长等待时间
      */
-    private Duration connectTimeout = Duration.ofSeconds(3);
+    private Duration connectTimeout = CONNECT_TIMEOUT;
 
     /**
      * 单次 HTTP 请求直到响应体收完的最长等待时间，响应头先到也不会停止计时
      */
-    private Duration readTimeout = Duration.ofSeconds(10);
+    private Duration readTimeout = READ_TIMEOUT;
 
     /**
      * 单次节点响应体的字节数上限，接收过程中超限就取消读取
      */
-    private DataSize maxResponseSize = DataSize.ofMegabytes(16);
+    private DataSize maxResponseSize = DataSize.ofBytes(MAX_RESPONSE_BYTES);
 
     /**
      * 每个 Scanner 实例刷新本机节点状态的间隔

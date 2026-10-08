@@ -1,7 +1,7 @@
 package com.nb.tron.scanner.model;
 
 import com.nb.tron.scanner.enums.TronNodeHealthStatus;
-import com.nb.tron.scanner.enums.TronNodeRole;
+import com.nb.tron.sdk.enums.TronNodeRole;
 
 import java.time.Instant;
 

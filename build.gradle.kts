@@ -8,6 +8,7 @@ group = providers.gradleProperty("projectGroup").get()
 version = providers.gradleProperty("projectVersion").get()
 
 val nbCommonVersion: String by project
+val tronSdkVersion: String by project
 val chainClientVersion: String by project
 val springCloudVersion: String by project
 
@@ -30,6 +31,7 @@ java {
 }
 
 dependencies {
+    implementation("com.nb:wallet-tron-sdk:$tronSdkVersion")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("com.nb:nb-core:$nbCommonVersion")
     implementation("com.nb:nb-feign-starter:$nbCommonVersion")

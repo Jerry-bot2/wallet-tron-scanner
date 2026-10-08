@@ -1,20 +1,19 @@
-package com.nb.tron.scanner.parser;
+package com.nb.tron.scanner.biz;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nb.chain.client.enums.AddressPurpose;
 import com.nb.core.exception.BizException;
 import com.nb.tron.scanner.config.TronScannerProperties;
-import com.nb.tron.scanner.enums.TronTokenStandard;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
-import com.nb.tron.scanner.model.TronBlockData;
 import com.nb.tron.scanner.model.TronCurrencyConfig;
 import com.nb.tron.scanner.model.TronDepositEvent;
-import com.nb.tron.scanner.model.TronTransaction;
-import com.nb.tron.scanner.model.TronTransactionReceipt;
-import com.nb.tron.scanner.support.JsonCodec;
-import com.nb.tron.scanner.support.TronAddressCodec;
+import com.nb.tron.sdk.codec.TronAddressCodec;
+import com.nb.tron.sdk.enums.TronTokenStandard;
+import com.nb.tron.sdk.model.TronBlockData;
+import com.nb.tron.sdk.model.TronTransaction;
+import com.nb.tron.sdk.model.TronTransactionReceipt;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -23,7 +22,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
-import static com.nb.tron.scanner.constant.TronTransactionConstants.TRC20_TRANSFER_EVENT_TOPIC;
+import static com.nb.tron.sdk.constant.TronTransactionConstants.TRANSFER_EVENT_TOPIC;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -33,7 +32,7 @@ import static org.mockito.Mockito.when;
  * Author: bin jack
  * Date: 03.10.26
  */
-class Trc20TransferParserTest {
+class DepositDiscoveryTrc20Test {
 
     private static final String USDT_CONTRACT_HEX =
         "a614f803b6fd780986a42c78ec9c7f77e6ded13c";
@@ -56,7 +55,7 @@ class Trc20TransferParserTest {
 
     private TronAddressCodec addressCodec;
 
-    private Trc20TransferParser transferParser;
+    private DepositDiscoveryService discoveryService;
 
     @BeforeEach
     void setUp() {
@@ -68,12 +67,8 @@ class Trc20TransferParserTest {
             TronTokenStandard.TRC20,
             USDT_CONTRACT_BASE58,
             6)));
-        transferParser = new Trc20TransferParser(
-            new JsonCodec(new ObjectMapper()),
-            addressCodec,
-            addressIndex,
-            currencyIndex,
-            new TronScannerProperties());
+        discoveryService = new DepositDiscoveryService(new com.nb.tron.sdk.parser.TronBlockParser(new ObjectMapper()),
+            addressIndex, currencyIndex, new TronScannerProperties());
     }
 
     @Test
@@ -82,7 +77,7 @@ class Trc20TransferParserTest {
         TronTransaction transaction = transaction("SUCCESS");
         TronTransactionReceipt receipt = receipt("SUCESS", transferLog(USDT_CONTRACT_HEX));
 
-        List<TronDepositEvent> events = transferParser.parse(block(transaction), transaction, receipt);
+        List<TronDepositEvent> events = discoveryService.discover(block(transaction, receipt));
 
         assertThat(events).singleElement().satisfies(event -> {
             assertThat(event.chainCode()).isEqualTo("TRON");
@@ -114,7 +109,7 @@ class Trc20TransferParserTest {
             "SUCESS",
             approvalLog + "," + transferLog(USDT_CONTRACT_HEX));
 
-        List<TronDepositEvent> events = transferParser.parse(block(transaction), transaction, receipt);
+        List<TronDepositEvent> events = discoveryService.discover(block(transaction, receipt));
 
         assertThat(events).singleElement()
             .extracting(TronDepositEvent::eventIndex)
@@ -129,7 +124,7 @@ class Trc20TransferParserTest {
             "SUCESS",
             transferLog(USDT_CONTRACT_HEX) + "," + transferLog(USDT_CONTRACT_HEX));
 
-        List<TronDepositEvent> events = transferParser.parse(block(transaction), transaction, receipt);
+        List<TronDepositEvent> events = discoveryService.discover(block(transaction, receipt));
 
         assertThat(events)
             .extracting(TronDepositEvent::eventIndex)
@@ -141,22 +136,22 @@ class Trc20TransferParserTest {
         TronTransaction transaction = transaction("SUCCESS");
         String unknownContract = "1111111111111111111111111111111111111111";
         TronTransactionReceipt unknownReceipt = receipt("SUCESS", transferLog(unknownContract));
-        assertThat(transferParser.parse(block(transaction), transaction, unknownReceipt)).isEmpty();
+        assertThat(discoveryService.discover(block(transaction, unknownReceipt))).isEmpty();
 
         when(addressIndex.findPurpose(TO_BASE58)).thenReturn(null);
         TronTransactionReceipt externalReceipt = receipt("SUCESS", transferLog(USDT_CONTRACT_HEX));
-        assertThat(transferParser.parse(block(transaction), transaction, externalReceipt)).isEmpty();
+        assertThat(discoveryService.discover(block(transaction, externalReceipt))).isEmpty();
     }
 
     @Test
     void shouldIgnoreFailedTransaction() {
         TronTransaction failedTransaction = transaction("REVERT");
         TronTransactionReceipt receipt = receipt("SUCESS", transferLog(USDT_CONTRACT_HEX));
-        assertThat(transferParser.parse(block(failedTransaction), failedTransaction, receipt)).isEmpty();
+        assertThat(discoveryService.discover(block(failedTransaction, receipt))).isEmpty();
 
         TronTransaction successfulTransaction = transaction("SUCCESS");
         TronTransactionReceipt failedReceipt = receipt("FAILED", transferLog(USDT_CONTRACT_HEX));
-        assertThat(transferParser.parse(block(successfulTransaction), successfulTransaction, failedReceipt)).isEmpty();
+        assertThat(discoveryService.discover(block(successfulTransaction, failedReceipt))).isEmpty();
     }
 
     @Test
@@ -166,7 +161,7 @@ class Trc20TransferParserTest {
             .replace(ONE_USDT_RAW, "01");
         TronTransactionReceipt receipt = receipt("SUCESS", invalidTransferLog);
 
-        assertThatThrownBy(() -> transferParser.parse(block(transaction), transaction, receipt))
+        assertThatThrownBy(() -> discoveryService.discover(block(transaction, receipt)))
             .isInstanceOf(BizException.class)
             .extracting(exception -> ((BizException) exception).getErrorCode())
             .isEqualTo(ScannerBizErrCode.TRON_TRANSACTION_INVALID);
@@ -204,13 +199,13 @@ class Trc20TransferParserTest {
             }
             """.formatted(
             contractAddress,
-            TRC20_TRANSFER_EVENT_TOPIC,
+            TRANSFER_EVENT_TOPIC,
             FROM_TOPIC,
             TO_TOPIC,
             ONE_USDT_RAW);
     }
 
-    private TronBlockData block(TronTransaction transaction) {
+    private TronBlockData block(TronTransaction transaction, TronTransactionReceipt receipt) {
         return new TronBlockData(
             "full-primary",
             100L,
@@ -218,6 +213,6 @@ class Trc20TransferParserTest {
             "block-99",
             Instant.parse("2026-10-03T10:00:00Z"),
             List.of(transaction),
-            Map.of());
+            Map.of(transaction.transactionId(), receipt));
     }
 }

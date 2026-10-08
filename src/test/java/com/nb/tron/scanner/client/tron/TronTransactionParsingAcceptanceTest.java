@@ -3,20 +3,18 @@ package com.nb.tron.scanner.client.tron;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nb.chain.client.enums.AddressPurpose;
+import com.nb.tron.scanner.biz.DepositDiscoveryService;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
-import com.nb.tron.scanner.enums.TronNodeRole;
-import com.nb.tron.scanner.enums.TronTokenStandard;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
-import com.nb.tron.scanner.model.TronBlockData;
 import com.nb.tron.scanner.model.TronCurrencyConfig;
 import com.nb.tron.scanner.model.TronDepositEvent;
-import com.nb.tron.scanner.parser.Trc20TransferParser;
-import com.nb.tron.scanner.parser.TronBlockParser;
-import com.nb.tron.scanner.parser.TrxTransferParser;
-import com.nb.tron.scanner.support.JsonCodec;
-import com.nb.tron.scanner.support.TronAddressCodec;
+import com.nb.tron.sdk.client.TronNodeClient;
+import com.nb.tron.sdk.codec.TronAddressCodec;
+import com.nb.tron.sdk.enums.TronNodeRole;
+import com.nb.tron.sdk.enums.TronTokenStandard;
+import com.nb.tron.sdk.model.TronBlockData;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -59,7 +57,7 @@ class TronTransactionParsingAcceptanceTest {
 
     private TronNodeClient nodeClient;
 
-    private TronBlockParser blockParser;
+    private DepositDiscoveryService blockParser;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -76,31 +74,16 @@ class TronTransactionParsingAcceptanceTest {
         server.start();
 
         TronScannerProperties scannerProperties = new TronScannerProperties();
-        JsonCodec jsonCodec = new JsonCodec(new ObjectMapper());
+        ObjectMapper objectMapper = new ObjectMapper();
         TronAddressCodec addressCodec = new TronAddressCodec();
-        TronHttpTransport httpTransport = new TronHttpTransport(
-            jsonCodec,
-            HttpClient.newHttpClient(),
-            scannerProperties);
-        nodeClient = new TronNodeClient(httpTransport);
+        nodeClient = new TronNodeClient(HttpClient.newHttpClient(), objectMapper,
+            scannerProperties.getNode().getReadTimeout(), scannerProperties.getNode().getMaxResponseSize().toBytes());
 
         TronAddressIndex addressIndex = mock(TronAddressIndex.class);
         when(addressIndex.findPurpose(addressCodec.fromHex(DEPOSIT_ADDRESS_HEX)))
             .thenReturn(AddressPurpose.DEPOSIT);
         TronCurrencyIndex currencyIndex = supportedCurrencies();
-        blockParser = new TronBlockParser(
-            new TrxTransferParser(
-                jsonCodec,
-                addressCodec,
-                addressIndex,
-                currencyIndex,
-                scannerProperties),
-            new Trc20TransferParser(
-                jsonCodec,
-                addressCodec,
-                addressIndex,
-                currencyIndex,
-                scannerProperties));
+        blockParser = new DepositDiscoveryService(new com.nb.tron.sdk.parser.TronBlockParser(objectMapper), addressIndex, currencyIndex, scannerProperties);
     }
 
     @AfterEach
@@ -110,15 +93,15 @@ class TronTransactionParsingAcceptanceTest {
 
     @Test
     void shouldParseOnlySupportedDepositsFromBlockSample() {
-        TronBlockData blockData = nodeClient.getBlockDataByHeight(fullNode(), BLOCK_HEIGHT);
+        TronBlockData blockData = nodeClient.getBlockDataByHeight(fullNode().toSdkEndpoint(), BLOCK_HEIGHT);
 
-        List<TronDepositEvent> events = blockParser.parse(blockData);
+        List<TronDepositEvent> events = blockParser.discover(blockData);
 
         assertThat(blockData.transactions()).hasSize(5);
         assertThat(events).hasSize(2);
         assertTrxDeposit(events.get(0));
         assertUsdtDeposit(events.get(1));
-        assertThat(blockParser.parse(blockData)).isEqualTo(events);
+        assertThat(blockParser.discover(blockData)).isEqualTo(events);
     }
 
     private void assertTrxDeposit(TronDepositEvent event) {

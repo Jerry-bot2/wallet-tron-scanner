@@ -1,14 +1,16 @@
 package com.nb.tron.scanner.node;
 
 import com.nb.core.exception.BizAssert;
+import com.nb.tron.scanner.support.TronSdkCalls;
+import com.nb.tron.scanner.support.HeadScanStatistics;
 import com.nb.core.exception.BizException;
-import com.nb.tron.scanner.client.tron.TronNodeClient;
+import com.nb.tron.sdk.client.TronNodeClient;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
-import com.nb.tron.scanner.enums.TronNodeRole;
+import com.nb.tron.sdk.enums.TronNodeRole;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
-import com.nb.tron.scanner.model.TronBlockData;
-import com.nb.tron.scanner.model.TronNodeHeight;
+import com.nb.tron.sdk.model.TronBlockData;
+import com.nb.tron.sdk.model.TronNodeHeight;
 import com.nb.tron.scanner.model.TronNodeRuntimeState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -86,7 +88,8 @@ public class TronNodeManager {
      */
     private TronNodeHeight readHeadHeight(TronNodeEndpointProperties endpoint) {
         long readStartedAt = System.nanoTime();
-        TronNodeHeight height = nodeClient.getHeadHeight(endpoint);
+        TronNodeHeight height = nodeClient.getHeadHeight(endpoint.toSdkEndpoint());
+        HeadScanStatistics.observeHead(height.blockHeight());
         nodeHealthService.updateLatestHeight(height, readStartedAt);
         return height;
     }
@@ -98,7 +101,7 @@ public class TronNodeManager {
         TronNodeEndpointProperties selectedNode = selectSolidityNode();
         return executeReadWithFailover(
             selectedNode,
-            nodeClient::getSolidHeight,
+            endpoint -> nodeClient.getSolidHeight(endpoint.toSdkEndpoint()),
             this::switchSolidityNode);
     }
 
@@ -110,7 +113,7 @@ public class TronNodeManager {
         TronNodeEndpointProperties selectedNode = selectFullNodeForBlock(blockHeight);
         return executeReadWithFailover(
             selectedNode,
-            endpoint -> nodeClient.getBlockDataByHeight(endpoint, blockHeight),
+            endpoint -> nodeClient.getBlockDataByHeight(endpoint.toSdkEndpoint(), blockHeight),
             failedNodeCode -> switchFullNodeForBlock(failedNodeCode, blockHeight));
     }
 
@@ -123,7 +126,7 @@ public class TronNodeManager {
         TronNodeEndpointProperties selectedNode = selectFullNodeForBlock(blockHeight);
         return executeReadWithFailover(
             selectedNode,
-            endpoint -> nodeClient.getBlockHeaderByHeight(endpoint, blockHeight),
+            endpoint -> nodeClient.getBlockHeaderByHeight(endpoint.toSdkEndpoint(), blockHeight),
             failedNodeCode -> switchFullNodeForBlock(failedNodeCode, blockHeight));
     }
 
@@ -215,7 +218,7 @@ public class TronNodeManager {
         Function<TronNodeEndpointProperties, T> readOperation,
         Function<String, TronNodeEndpointProperties> fallbackSelector) {
         try {
-            return readOperation.apply(selectedNode);
+            return HeadScanStatistics.timeNodeRead(() -> TronSdkCalls.execute(() -> readOperation.apply(selectedNode)));
         } catch (BizException exception) {
             TronNodeEndpointProperties fallbackNode = fallbackSelector.apply(selectedNode.getCode());
             log.warn("TRON节点读取失败，切换备用节点重试，failedNodeCode={}，fallbackNodeCode={}，errorCode={}",
@@ -229,7 +232,7 @@ public class TronNodeManager {
     private <T> T readFromFallbackNode(TronNodeEndpointProperties fallbackNode,
                                        Function<TronNodeEndpointProperties, T> readOperation) {
         try {
-            return readOperation.apply(fallbackNode);
+            return HeadScanStatistics.timeNodeRead(() -> TronSdkCalls.execute(() -> readOperation.apply(fallbackNode)));
         } catch (BizException exception) {
             startRecoveryCooldown(fallbackNode.getCode());
             throw exception;

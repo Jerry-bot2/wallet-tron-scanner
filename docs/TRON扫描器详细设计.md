@@ -287,14 +287,17 @@ address_status = PENDING_MONITOR
 ```text
 scanner 扫描 FullNode Head 区块
 → 发现平台地址充值
-→ chain-server 创建 CONFIRMING 充值记录
-→ 出入金服务展示充值中
+→ chain-server 创建 CONFIRMING、版本1和待通知标记
+→ 链服务统一通知任务发送当前状态，出入金服务展示充值中
 → chain-server 确认任务读取 TRON 最新固化高度
 → 通过 SolidityNode 核验原交易和事件
-→ 更新为 CONFIRMED 或 ORPHANED
+→ 更新为 CONFIRMED 或 ORPHANED，版本加1并登记待通知
+→ 同一个通知任务发送当前版本，出入金服务按版本更新订单
 ```
 
 scanner 负责及时发现链上事实，`wallet-chain-server` 负责推进充值业务状态。
+
+出入金服务消费chain-server的标准状态消息，不直接消费Scanner原始消息。同步最新状态，不要求每次中间变化单独送达；快速固化时可以直接通知成功，下游根据完整消息创建订单。
 
 ### 7.1 两类高度
 
@@ -355,6 +358,8 @@ Scanner 只使用 FullNode 完成扫块与分叉恢复。chain-server 独立核�
 
 ### 7.5 chain-server 固化确认任务
 
+详细核验规则、失效复查与当前状态通知实施计划见 [阶段 7 充值固化确认闭环设计](../../wallet-chain-server/docs/阶段7-充值固化确认闭环设计.md)。本阶段实现在 chain-server，Scanner 继续负责发现与分叉重扫。
+
 `DepositConfirmationJob` 定时执行：
 
 ```text
@@ -365,12 +370,14 @@ Scanner 只使用 FullNode 完成扫块与分叉恢复。chain-server 独立核�
    ├─ 完全一致：CONFIRMING → CONFIRMED
    ├─ 明确位于失效分叉：CONFIRMING → ORPHANED
    └─ 节点超时或结果不明确：保持 CONFIRMING，下次重试
-→ 与状态更新在同一事务登记下游通知事件
+→ 状态、版本递增和待通知标记同一次更新，通知任务获得 Kafka ACK 后匹配发送时版本标记已发送
 ```
 
 不能只使用 `block_number <= S` 就确认到账。固化高度只表示可以开始核验，最终还要通过 SolidityNode 确认原 `txId`、交易成功结果和对应转账事件确实存在。
 
 一次查询不到交易不能直接更新为 `ORPHANED`。只有健康 SolidityNode 明确返回原区块或交易已经不在固化链上时才能判定失效；连接失败、限流和超时都继续等待。
+
+`ORPHANED` 表示原充值事实失效，可以恢复为更高版本的确认中或已确认。节点超时不发送充值失败；下游不能让旧版本的失效通知覆盖新版本成功状态。
 
 ### 7.6 每轮扫描上限
 
@@ -687,3 +694,19 @@ Job 只负责触发和记录执行结果，业务流程放在 Service。节点 S
 - [TRON API Reference](https://developers.tron.network/docs/api)：SolidityNode 用于固化状态读取，扫描器维护本地索引数据库。
 - [TRON Event Plugin](https://github.com/tronprotocol/event-plugin)：后续需要事件订阅时的官方扩展方案。
 - [Trezor Blockbook](https://github.com/trezor/blockbook)：独立索引器使用本地持久化索引的成熟实践。
+
+
+---
+
+## 19. TRON SDK接入
+
+节点HTTP访问、协议模型、地址转换和完整转账解析集中在同级项目 `wallet-tron-sdk`。
+
+1. `TronHttpConfiguration`直接装配SDK的`TronNodeClient`、`TronAddressCodec`和`TronBlockParser`；客户端复用应用HttpClient和ObjectMapper，内部创建传输层。
+2. `TronNodeManager`管理节点健康、主备选择和扫描统计，使用SDK读取完整区块。
+3. `biz.DepositDiscoveryService`将以`TronAsset`为键的不可变币种快照交给SDK，得到标准转账后匹配平台充值地址并组装业务事件；每轮共用同一份快照。
+4. `HeadBlockScanService`继续负责扫块编排、Kafka ACK、进度与摘要保存及分叉恢复。
+5. 原Scanner的同名客户端、地址转换器和`parser`包已迁入SDK，协议解析不再分散维护。
+6. 默认依赖JAR，源码联调显式启用 `-PuseLocalTronSdk=true`。
+
+完整入口和调用示例见[SDK说明](../../wallet-tron-sdk/README.md)。

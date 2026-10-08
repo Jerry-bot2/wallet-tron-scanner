@@ -1,15 +1,17 @@
 package com.nb.tron.scanner.node;
 
 import com.nb.core.exception.BizException;
-import com.nb.tron.scanner.client.tron.TronNodeClient;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.enums.TronNodeHealthStatus;
-import com.nb.tron.scanner.enums.TronNodeRole;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
-import com.nb.tron.scanner.model.TronBlockData;
-import com.nb.tron.scanner.model.TronNodeHeight;
 import com.nb.tron.scanner.model.TronNodeRuntimeState;
+import com.nb.tron.sdk.client.TronNodeClient;
+import com.nb.tron.sdk.enums.TronNodeRole;
+import com.nb.tron.sdk.enums.TronSdkError;
+import com.nb.tron.sdk.exception.TronSdkException;
+import com.nb.tron.sdk.model.TronBlockData;
+import com.nb.tron.sdk.model.TronNodeHeight;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -56,7 +58,7 @@ class TronNodeManagerTest {
         when(nodeHealthService.getNodeStates()).thenReturn(List.of(
             healthyState(primary, 100L, Instant.now().minusSeconds(120))));
         TronNodeHeight expected = nodeHeight(primary, 100L);
-        when(nodeClient.getHeadHeight(primary)).thenReturn(expected);
+        when(nodeClient.getHeadHeight(primary.toSdkEndpoint())).thenReturn(expected);
 
         assertThat(nodeManager.getHeadHeight()).isSameAs(expected);
     }
@@ -66,17 +68,17 @@ class TronNodeManagerTest {
         TronNodeEndpointProperties primary = endpoint("full-primary", TronNodeRole.FULL_NODE, 1);
         scannerProperties.getNode().setNodes(List.of(primary));
         initializeRealNodeHealth();
-        when(nodeClient.getHeadHeight(primary)).thenReturn(nodeHeight(primary, 1003L));
+        when(nodeClient.getHeadHeight(primary.toSdkEndpoint())).thenReturn(nodeHeight(primary, 1003L));
         TronBlockData expected = blockData(primary, 1001L);
-        when(nodeClient.getBlockDataByHeight(primary, 1001L)).thenReturn(expected);
+        when(nodeClient.getBlockDataByHeight(primary.toSdkEndpoint(), 1001L)).thenReturn(expected);
 
         // 上次检查只到 1000，本轮读到 1003 后，应立即能够读取 1001，不用等健康检查刷新。
         assertThat(nodeManager.getHeadHeight().blockHeight()).isEqualTo(1003L);
         assertThat(nodeManager.getBlockDataByHeight(1001L)).isSameAs(expected);
         assertThat(nodeHealthService.findNodeState(primary.getCode()).orElseThrow().latestBlockHeight())
             .isEqualTo(1003L);
-        verify(nodeClient, times(2)).getHeadHeight(primary);
-        verify(nodeClient).getBlockHeaderByHeight(primary, 0L);
+        verify(nodeClient, times(2)).getHeadHeight(primary.toSdkEndpoint());
+        verify(nodeClient).getBlockHeaderByHeight(primary.toSdkEndpoint(), 0L);
     }
 
     @Test
@@ -85,11 +87,11 @@ class TronNodeManagerTest {
         TronNodeEndpointProperties backup = endpoint("full-backup", TronNodeRole.FULL_NODE, 2);
         scannerProperties.getNode().setNodes(List.of(primary, backup));
         initializeRealNodeHealth();
-        when(nodeClient.getHeadHeight(primary))
-            .thenThrow(BizException.of(ScannerBizErrCode.TRON_NODE_TIMEOUT));
-        when(nodeClient.getHeadHeight(backup)).thenReturn(nodeHeight(backup, 1003L));
+        when(nodeClient.getHeadHeight(primary.toSdkEndpoint()))
+            .thenThrow(TronSdkException.of(TronSdkError.TIMEOUT));
+        when(nodeClient.getHeadHeight(backup.toSdkEndpoint())).thenReturn(nodeHeight(backup, 1003L));
         TronBlockData expected = blockData(backup, 1001L);
-        when(nodeClient.getBlockDataByHeight(backup, 1001L)).thenReturn(expected);
+        when(nodeClient.getBlockDataByHeight(backup.toSdkEndpoint(), 1001L)).thenReturn(expected);
 
         assertThat(nodeManager.getHeadHeight().nodeCode()).isEqualTo(backup.getCode());
         assertThat(nodeManager.getBlockDataByHeight(1001L)).isSameAs(expected);
@@ -97,9 +99,9 @@ class TronNodeManagerTest {
             .isEqualTo(1000L);
         assertThat(nodeHealthService.findNodeState(backup.getCode()).orElseThrow().latestBlockHeight())
             .isEqualTo(1003L);
-        verify(nodeClient, times(2)).getHeadHeight(primary);
-        verify(nodeClient, times(2)).getHeadHeight(backup);
-        verify(nodeClient, never()).getBlockDataByHeight(primary, 1001L);
+        verify(nodeClient, times(2)).getHeadHeight(primary.toSdkEndpoint());
+        verify(nodeClient, times(2)).getHeadHeight(backup.toSdkEndpoint());
+        verify(nodeClient, never()).getBlockDataByHeight(primary.toSdkEndpoint(), 1001L);
     }
 
     @Test
@@ -111,9 +113,9 @@ class TronNodeManagerTest {
             healthyState(primary, 100L, Instant.now().minusSeconds(120)),
             healthyState(backup, 100L, Instant.now().minusSeconds(120))));
         TronNodeHeight expected = nodeHeight(backup, 100L);
-        when(nodeClient.getHeadHeight(primary))
-            .thenThrow(BizException.of(ScannerBizErrCode.TRON_NODE_TIMEOUT));
-        when(nodeClient.getHeadHeight(backup)).thenReturn(expected);
+        when(nodeClient.getHeadHeight(primary.toSdkEndpoint()))
+            .thenThrow(TronSdkException.of(TronSdkError.TIMEOUT));
+        when(nodeClient.getHeadHeight(backup.toSdkEndpoint())).thenReturn(expected);
 
         assertThat(nodeManager.getHeadHeight()).isSameAs(expected);
         assertThat(nodeManager.selectFullNodeForHead()).isSameAs(backup);
@@ -129,7 +131,7 @@ class TronNodeManagerTest {
         when(nodeHealthService.getNodeStates()).thenReturn(List.of(
             healthyState(solidityNode, 90L, Instant.now().minusSeconds(120))));
         TronNodeHeight expected = nodeHeight(solidityNode, 90L);
-        when(nodeClient.getSolidHeight(solidityNode)).thenReturn(expected);
+        when(nodeClient.getSolidHeight(solidityNode.toSdkEndpoint())).thenReturn(expected);
 
         assertThat(nodeManager.getSolidHeight()).isSameAs(expected);
     }
@@ -145,8 +147,8 @@ class TronNodeManagerTest {
         when(nodeHealthService.getNodeStates()).thenReturn(List.of(
             healthyState(fullNode, 110L, Instant.now().minusSeconds(120)),
             healthyState(solidityNode, 100L, Instant.now().minusSeconds(120))));
-        when(nodeClient.getHeadHeight(fullNode)).thenReturn(nodeHeight(fullNode, 110L));
-        when(nodeClient.getSolidHeight(solidityNode)).thenReturn(nodeHeight(solidityNode, 100L));
+        when(nodeClient.getHeadHeight(fullNode.toSdkEndpoint())).thenReturn(nodeHeight(fullNode, 110L));
+        when(nodeClient.getSolidHeight(solidityNode.toSdkEndpoint())).thenReturn(nodeHeight(solidityNode, 100L));
 
         TronNodeHeight headHeight = nodeManager.getHeadHeight();
         TronNodeHeight solidHeight = nodeManager.getSolidHeight();
@@ -168,8 +170,8 @@ class TronNodeManagerTest {
             healthyState(solidityNode, 100L, Instant.now().minusSeconds(120))));
         TronNodeHeight solidHeight = nodeHeight(solidityNode, 100L);
         TronBlockData solidBlock = blockData(fullNode, 100L);
-        when(nodeClient.getSolidHeight(solidityNode)).thenReturn(solidHeight);
-        when(nodeClient.getBlockDataByHeight(fullNode, 100L)).thenReturn(solidBlock);
+        when(nodeClient.getSolidHeight(solidityNode.toSdkEndpoint())).thenReturn(solidHeight);
+        when(nodeClient.getBlockDataByHeight(fullNode.toSdkEndpoint(), 100L)).thenReturn(solidBlock);
 
         TronNodeHeight actualSolidHeight = nodeManager.getSolidHeight();
         TronBlockData actualSolidBlock = nodeManager.getBlockDataByHeight(
@@ -194,7 +196,7 @@ class TronNodeManagerTest {
             .isInstanceOf(BizException.class)
             .extracting(exception -> ((BizException) exception).getErrorCode())
             .isEqualTo(ScannerBizErrCode.TRON_NODE_UNAVAILABLE);
-        verify(nodeClient, never()).getSolidHeight(solidityNode);
+        verify(nodeClient, never()).getSolidHeight(solidityNode.toSdkEndpoint());
     }
 
     @Test
@@ -204,7 +206,7 @@ class TronNodeManagerTest {
         when(nodeHealthService.getNodeStates()).thenReturn(List.of(
             healthyState(primary, 100L, Instant.now().minusSeconds(120))));
         TronBlockData expected = blockData(primary, 90L);
-        when(nodeClient.getBlockDataByHeight(primary, 90L)).thenReturn(expected);
+        when(nodeClient.getBlockDataByHeight(primary.toSdkEndpoint(), 90L)).thenReturn(expected);
 
         assertThat(nodeManager.getBlockDataByHeight(90L)).isSameAs(expected);
     }
@@ -216,7 +218,7 @@ class TronNodeManagerTest {
         when(nodeHealthService.getNodeStates()).thenReturn(List.of(
             healthyState(primary, 100L, Instant.now().minusSeconds(120))));
         TronNodeHeight expected = nodeHeight(primary, 90L);
-        when(nodeClient.getBlockHeaderByHeight(primary, 90L)).thenReturn(expected);
+        when(nodeClient.getBlockHeaderByHeight(primary.toSdkEndpoint(), 90L)).thenReturn(expected);
 
         assertThat(nodeManager.getBlockHeaderByHeight(90L)).isSameAs(expected);
     }
@@ -228,7 +230,7 @@ class TronNodeManagerTest {
             .extracting(exception -> ((BizException) exception).getErrorCode())
             .isEqualTo(ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
         verify(nodeClient, never()).getBlockDataByHeight(
-            org.mockito.ArgumentMatchers.any(TronNodeEndpointProperties.class),
+            org.mockito.ArgumentMatchers.any(com.nb.tron.sdk.model.TronNodeEndpoint.class),
             org.mockito.ArgumentMatchers.anyLong());
     }
 
@@ -242,16 +244,16 @@ class TronNodeManagerTest {
             healthyState(primary, 100L, Instant.now().minusSeconds(120)),
             healthyState(backup, 100L, Instant.now().minusSeconds(120)),
             healthyState(third, 100L, Instant.now().minusSeconds(120))));
-        when(nodeClient.getHeadHeight(primary))
-            .thenThrow(BizException.of(ScannerBizErrCode.TRON_NODE_TIMEOUT));
-        when(nodeClient.getHeadHeight(backup))
-            .thenThrow(BizException.of(ScannerBizErrCode.TRON_NODE_CONNECT_FAILED));
+        when(nodeClient.getHeadHeight(primary.toSdkEndpoint()))
+            .thenThrow(TronSdkException.of(TronSdkError.TIMEOUT));
+        when(nodeClient.getHeadHeight(backup.toSdkEndpoint()))
+            .thenThrow(TronSdkException.of(TronSdkError.CONNECT_FAILED));
 
         assertThatThrownBy(nodeManager::getHeadHeight)
             .isInstanceOf(BizException.class)
             .extracting(exception -> ((BizException) exception).getErrorCode())
             .isEqualTo(ScannerBizErrCode.TRON_NODE_CONNECT_FAILED);
-        verify(nodeClient, never()).getHeadHeight(third);
+        verify(nodeClient, never()).getHeadHeight(third.toSdkEndpoint());
     }
 
     @Test
@@ -358,17 +360,17 @@ class TronNodeManagerTest {
         when(nodeHealthService.getNodeStates()).thenReturn(List.of(
             healthyState(primary, 100L, Instant.now().minusSeconds(120)),
             healthyState(backup, 100L, Instant.now().minusSeconds(120))));
-        when(nodeClient.getBlockHeaderByHeight(primary, 90L)).thenReturn(nodeHeight(primary, 90L));
-        when(nodeClient.getBlockHeaderByHeight(primary, 95L)).thenReturn(nodeHeight(primary, 95L));
+        when(nodeClient.getBlockHeaderByHeight(primary.toSdkEndpoint(), 90L)).thenReturn(nodeHeight(primary, 90L));
+        when(nodeClient.getBlockHeaderByHeight(primary.toSdkEndpoint(), 95L)).thenReturn(nodeHeight(primary, 95L));
 
         TronBlockHeaderReader reader = nodeManager.openBlockHeaderReader(100L);
         reader.getBlockHeaderByHeight(90L);
         nodeManager.switchFullNodeForBlock(primary.getCode(), 100L);
         reader.getBlockHeaderByHeight(95L);
 
-        verify(nodeClient).getBlockHeaderByHeight(primary, 90L);
-        verify(nodeClient).getBlockHeaderByHeight(primary, 95L);
-        verify(nodeClient, never()).getBlockHeaderByHeight(backup, 95L);
+        verify(nodeClient).getBlockHeaderByHeight(primary.toSdkEndpoint(), 90L);
+        verify(nodeClient).getBlockHeaderByHeight(primary.toSdkEndpoint(), 95L);
+        verify(nodeClient, never()).getBlockHeaderByHeight(backup.toSdkEndpoint(), 95L);
     }
 
     @Test
@@ -379,13 +381,13 @@ class TronNodeManagerTest {
         when(nodeHealthService.getNodeStates()).thenReturn(List.of(
             healthyState(primary, 100L, Instant.now().minusSeconds(120)),
             healthyState(backup, 100L, Instant.now().minusSeconds(120))));
-        when(nodeClient.getBlockHeaderByHeight(primary, 90L))
-            .thenThrow(BizException.of(ScannerBizErrCode.TRON_NODE_TIMEOUT));
-        when(nodeClient.getBlockHeaderByHeight(backup, 90L)).thenReturn(nodeHeight(backup, 90L));
+        when(nodeClient.getBlockHeaderByHeight(primary.toSdkEndpoint(), 90L))
+            .thenThrow(TronSdkException.of(TronSdkError.TIMEOUT));
+        when(nodeClient.getBlockHeaderByHeight(backup.toSdkEndpoint(), 90L)).thenReturn(nodeHeight(backup, 90L));
 
         TronBlockHeaderReader reader = nodeManager.openBlockHeaderReader(100L);
         assertThatThrownBy(() -> reader.getBlockHeaderByHeight(90L)).isInstanceOf(BizException.class);
-        verify(nodeClient, never()).getBlockHeaderByHeight(backup, 90L);
+        verify(nodeClient, never()).getBlockHeaderByHeight(backup.toSdkEndpoint(), 90L);
         assertThat(nodeManager.openBlockHeaderReader(100L).getBlockHeaderByHeight(90L).nodeCode())
             .isEqualTo(backup.getCode());
     }
@@ -405,8 +407,8 @@ class TronNodeManagerTest {
     private void initializeRealNodeHealth() {
         scannerProperties.setExpectedGenesisBlockId("block-0");
         for (TronNodeEndpointProperties endpoint : scannerProperties.getNode().getNodes()) {
-            when(nodeClient.getBlockHeaderByHeight(endpoint, 0L)).thenReturn(nodeHeight(endpoint, 0L));
-            when(nodeClient.getHeadHeight(endpoint)).thenReturn(nodeHeight(endpoint, 1000L));
+            when(nodeClient.getBlockHeaderByHeight(endpoint.toSdkEndpoint(), 0L)).thenReturn(nodeHeight(endpoint, 0L));
+            when(nodeClient.getHeadHeight(endpoint.toSdkEndpoint())).thenReturn(nodeHeight(endpoint, 1000L));
         }
         nodeHealthService = new TronNodeHealthService(scannerProperties, nodeClient);
         nodeHealthService.refreshNodeStates();

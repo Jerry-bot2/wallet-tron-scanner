@@ -6,14 +6,16 @@ import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.entity.TronScanCheckpoint;
 import com.nb.tron.scanner.entity.TronScannedBlock;
-import com.nb.tron.scanner.enums.TronNodeRole;
-import com.nb.tron.scanner.model.TronBlockData;
-import com.nb.tron.scanner.model.TronNodeHeight;
 import com.nb.tron.scanner.node.TronNodeHealthService;
 import com.nb.tron.scanner.node.TronNodeManager;
 import com.nb.tron.scanner.node.TronNodeStartupValidator;
 import com.nb.tron.scanner.support.HeadScanTestDatabase;
-import com.nb.tron.scanner.support.JsonCodec;
+import com.nb.tron.sdk.client.TronHttpTransport;
+import com.nb.tron.sdk.client.TronNodeClient;
+import com.nb.tron.sdk.codec.JsonCodec;
+import com.nb.tron.sdk.enums.TronNodeRole;
+import com.nb.tron.sdk.model.TronBlockData;
+import com.nb.tron.sdk.model.TronNodeHeight;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -56,10 +58,7 @@ class TronNodeTestnetAcceptanceTest {
         properties = new TronScannerProperties();
         properties.setChainNetwork(network);
         properties.setExpectedGenesisBlockId(expectedGenesisBlockId);
-        nodeClient = new TronNodeClient(new TronHttpTransport(
-            new JsonCodec(new ObjectMapper()),
-            HttpClient.newBuilder().connectTimeout(properties.getNode().getConnectTimeout()).build(),
-            properties));
+        nodeClient = new TronNodeClient(new TronHttpTransport(HttpClient.newBuilder().connectTimeout(properties.getNode().getConnectTimeout()).build(), new JsonCodec(new ObjectMapper()), properties.getNode().getReadTimeout(), properties.getNode().getMaxResponseSize().toBytes()));
         fullNode = endpoint("full-acceptance", TronNodeRole.FULL_NODE, fullNodeUrl,
             System.getenv("TRON_FULL_NODE_PRIMARY_API_KEY"));
         properties.getNode().setNodes(List.of(fullNode));
@@ -89,13 +88,13 @@ class TronNodeTestnetAcceptanceTest {
         assumeTrue(hasText(solidityUrl), "未配置可选固化节点，跳过两类节点对比");
         TronNodeEndpointProperties solidityNode = endpoint("solidity-acceptance", TronNodeRole.SOLIDITY_NODE,
             solidityUrl, System.getenv("TRON_SOLIDITY_NODE_API_KEY"));
-        assertThat(nodeClient.getBlockHeaderByHeight(solidityNode, 0).blockId())
+        assertThat(nodeClient.getBlockHeaderByHeight(solidityNode.toSdkEndpoint(), 0).blockId())
             .isEqualToIgnoringCase(expectedGenesisBlockId);
 
-        TronNodeHeight solidHeight = nodeClient.getSolidHeight(solidityNode);
-        TronNodeHeight headHeight = nodeClient.getHeadHeight(fullNode);
+        TronNodeHeight solidHeight = nodeClient.getSolidHeight(solidityNode.toSdkEndpoint());
+        TronNodeHeight headHeight = nodeClient.getHeadHeight(fullNode.toSdkEndpoint());
         assertThat(headHeight.blockHeight()).isGreaterThanOrEqualTo(solidHeight.blockHeight());
-        TronBlockData fullBlock = nodeClient.getBlockDataByHeight(fullNode, solidHeight.blockHeight());
+        TronBlockData fullBlock = nodeClient.getBlockDataByHeight(fullNode.toSdkEndpoint(), solidHeight.blockHeight());
         assertThat(fullBlock.blockId()).isEqualToIgnoringCase(solidHeight.blockId());
         System.out.printf("TESTNET_SOLID_COMPARE network=%s solid=%d blockId=%s%n",
             properties.getChainNetwork(), solidHeight.blockHeight(), fullBlock.blockId());

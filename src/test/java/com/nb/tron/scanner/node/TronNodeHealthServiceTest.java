@@ -1,14 +1,14 @@
 package com.nb.tron.scanner.node;
 
 import com.nb.core.exception.BizException;
-import com.nb.tron.scanner.client.tron.TronNodeClient;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.enums.TronNodeHealthStatus;
-import com.nb.tron.scanner.enums.TronNodeRole;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
-import com.nb.tron.scanner.model.TronNodeHeight;
 import com.nb.tron.scanner.model.TronNodeRuntimeState;
+import com.nb.tron.sdk.client.TronNodeClient;
+import com.nb.tron.sdk.enums.TronNodeRole;
+import com.nb.tron.sdk.model.TronNodeHeight;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -71,7 +71,7 @@ class TronNodeHealthServiceTest {
         TronNodeEndpointProperties fullNode = endpoint("full-primary", TronNodeRole.FULL_NODE);
         scannerProperties.getNode().setNodes(List.of(fullNode));
         mockGenesisBlock(fullNode);
-        when(nodeClient.getHeadHeight(fullNode))
+        when(nodeClient.getHeadHeight(fullNode.toSdkEndpoint()))
             .thenReturn(height(fullNode, 100L, "block-100"))
             .thenThrow(BizException.of(ScannerBizErrCode.TRON_NODE_TIMEOUT));
 
@@ -93,7 +93,7 @@ class TronNodeHealthServiceTest {
         TronNodeEndpointProperties failedNode = endpoint("full-primary", TronNodeRole.FULL_NODE);
         TronNodeEndpointProperties healthyNode = endpoint("full-backup", TronNodeRole.FULL_NODE);
         scannerProperties.getNode().setNodes(List.of(failedNode, healthyNode));
-        when(nodeClient.getBlockHeaderByHeight(failedNode, 0L))
+        when(nodeClient.getBlockHeaderByHeight(failedNode.toSdkEndpoint(), 0L))
             .thenThrow(BizException.of(ScannerBizErrCode.TRON_NODE_CONNECT_FAILED));
         mockHealthyNode(healthyNode, 100L);
 
@@ -109,7 +109,7 @@ class TronNodeHealthServiceTest {
             "full-wrong-network",
             TronNodeRole.FULL_NODE);
         scannerProperties.getNode().setNodes(List.of(wrongNetworkNode));
-        when(nodeClient.getBlockHeaderByHeight(wrongNetworkNode, 0L))
+        when(nodeClient.getBlockHeaderByHeight(wrongNetworkNode.toSdkEndpoint(), 0L))
             .thenReturn(height(wrongNetworkNode, 0L, "other-genesis-block-id"));
 
         List<TronNodeRuntimeState> states = healthService.refreshNodeStates();
@@ -118,7 +118,7 @@ class TronNodeHealthServiceTest {
             assertThat(state.healthStatus()).isEqualTo(TronNodeHealthStatus.UNKNOWN);
             assertThat(state.latestBlockHeight()).isNull();
         });
-        verify(nodeClient, never()).getHeadHeight(wrongNetworkNode);
+        verify(nodeClient, never()).getHeadHeight(wrongNetworkNode.toSdkEndpoint());
     }
 
     @Test
@@ -127,7 +127,7 @@ class TronNodeHealthServiceTest {
         scannerProperties.getNode().setNodes(List.of(fullNode));
         mockHealthyNode(fullNode, 100L);
         healthService.refreshNodeStates();
-        when(nodeClient.getHeadHeight(fullNode))
+        when(nodeClient.getHeadHeight(fullNode.toSdkEndpoint()))
             .thenThrow(BizException.of(ScannerBizErrCode.TRON_NODE_TIMEOUT));
         healthService.refreshNodeStates();
         TronNodeRuntimeState beforeUpdate = healthService.findNodeState(fullNode.getCode()).orElseThrow();
@@ -164,7 +164,7 @@ class TronNodeHealthServiceTest {
         scannerProperties.getNode().setNodes(List.of(fullNode));
         mockHealthyNode(fullNode, 100L);
         healthService.refreshNodeStates();
-        when(nodeClient.getHeadHeight(fullNode)).thenAnswer(invocation -> {
+        when(nodeClient.getHeadHeight(fullNode.toSdkEndpoint())).thenAnswer(invocation -> {
             // 健康检查尚未返回时，扫描查询已经读到 103 并回写；检查随后返回旧高度 100。
             healthService.updateLatestHeight(height(fullNode, 103L, "block-103"), System.nanoTime());
             return height(fullNode, 100L, "block-100");
@@ -194,14 +194,14 @@ class TronNodeHealthServiceTest {
         mockGenesisBlock(endpoint);
         TronNodeHeight latestBlock = height(endpoint, blockHeight, "block-" + blockHeight);
         if (endpoint.getRole() == TronNodeRole.FULL_NODE) {
-            when(nodeClient.getHeadHeight(endpoint)).thenReturn(latestBlock);
+            when(nodeClient.getHeadHeight(endpoint.toSdkEndpoint())).thenReturn(latestBlock);
         } else {
-            when(nodeClient.getSolidHeight(endpoint)).thenReturn(latestBlock);
+            when(nodeClient.getSolidHeight(endpoint.toSdkEndpoint())).thenReturn(latestBlock);
         }
     }
 
     private void mockGenesisBlock(TronNodeEndpointProperties endpoint) {
-        when(nodeClient.getBlockHeaderByHeight(endpoint, 0L))
+        when(nodeClient.getBlockHeaderByHeight(endpoint.toSdkEndpoint(), 0L))
             .thenReturn(height(endpoint, 0L, GENESIS_BLOCK_ID));
     }
 

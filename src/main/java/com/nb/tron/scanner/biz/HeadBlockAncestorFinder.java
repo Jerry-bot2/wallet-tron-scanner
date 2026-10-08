@@ -5,7 +5,7 @@ import com.nb.tron.scanner.algorithm.BinarySearch;
 import com.nb.tron.scanner.entity.TronScanCheckpoint;
 import com.nb.tron.scanner.entity.TronScannedBlock;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
-import com.nb.tron.scanner.model.TronNodeHeight;
+import com.nb.tron.sdk.model.TronNodeHeight;
 import com.nb.tron.scanner.node.TronBlockHeaderReader;
 import com.nb.tron.scanner.node.TronNodeManager;
 import com.nb.tron.scanner.service.ITronScannedBlockService;

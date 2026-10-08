@@ -1,22 +1,22 @@
 package com.nb.tron.scanner.biz;
 
 import com.nb.core.exception.BizException;
-import com.nb.tron.scanner.client.tron.TronNodeClient;
+import com.nb.tron.scanner.biz.DepositDiscoveryService;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.entity.TronScanCheckpoint;
 import com.nb.tron.scanner.entity.TronScannedBlock;
-import com.nb.tron.scanner.enums.TronNodeRole;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
-import com.nb.tron.scanner.model.TronBlockData;
-import com.nb.tron.scanner.model.TronNodeHeight;
 import com.nb.tron.scanner.model.TronNodeRuntimeState;
 import com.nb.tron.scanner.mq.publisher.DepositDiscoveryPublisher;
 import com.nb.tron.scanner.node.TronNodeHealthService;
 import com.nb.tron.scanner.node.TronNodeManager;
-import com.nb.tron.scanner.parser.TronBlockParser;
+import com.nb.tron.sdk.client.TronNodeClient;
+import com.nb.tron.sdk.enums.TronNodeRole;
+import com.nb.tron.sdk.model.TronBlockData;
+import com.nb.tron.sdk.model.TronNodeHeight;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -45,7 +45,7 @@ class HeadBlockScanRecoveryTest {
     private TronNodeManager manager;
     private TronAddressIndex addresses;
     private TronCurrencyIndex currencies;
-    private TronBlockParser parser;
+    private DepositDiscoveryService parser;
     private DepositDiscoveryPublisher publisher;
     private HeadBlockScanService scanner;
 
@@ -56,7 +56,7 @@ class HeadBlockScanRecoveryTest {
         manager = mock(TronNodeManager.class);
         addresses = mock(TronAddressIndex.class);
         currencies = mock(TronCurrencyIndex.class);
-        parser = mock(TronBlockParser.class);
+        parser = mock(DepositDiscoveryService.class);
         publisher = mock(DepositDiscoveryPublisher.class);
         when(addresses.isReady()).thenReturn(true);
         when(currencies.isReady()).thenReturn(true);
@@ -64,7 +64,7 @@ class HeadBlockScanRecoveryTest {
         when(finder.findCommonAncestor(checkpoint)).thenReturn(summary(1010));
         when(manager.getHeadHeight()).thenReturn(height(1010));
         when(manager.getBlockHeaderByHeight(anyLong())).thenAnswer(i -> height(i.getArgument(0)));
-        when(parser.parse(any())).thenReturn(List.of());
+        when(parser.discover(any())).thenReturn(List.of());
         when(progress.advance(any(), any())).thenAnswer(i -> {
             TronBlockData data = i.getArgument(1);
             return new TronScanCheckpoint().setChainNetwork("MAINNET")
@@ -155,16 +155,16 @@ class HeadBlockScanRecoveryTest {
         TronNodeManager realManager = new TronNodeManager(properties, health, client);
         when(client.getHeadHeight(any())).thenReturn(height(1011));
         when(client.getBlockHeaderByHeight(any(), eq(1010L))).thenReturn(height(1010));
-        when(client.getBlockDataByHeight(primary, 1011)).thenReturn(new TronBlockData(primary.getCode(),
+        when(client.getBlockDataByHeight(primary.toSdkEndpoint(), 1011)).thenReturn(new TronBlockData(primary.getCode(),
             1011, "h1011", "wrong-parent", Instant.EPOCH, List.of(), Map.of()));
-        when(client.getBlockDataByHeight(backup, 1011)).thenReturn(new TronBlockData(backup.getCode(),
+        when(client.getBlockDataByHeight(backup.toSdkEndpoint(), 1011)).thenReturn(new TronBlockData(backup.getCode(),
             1011, "h1011", "h1010", Instant.EPOCH, List.of(), Map.of()));
         HeadBlockScanService realScanner = scanner(realManager);
 
         assertThat(realScanner.scanBlocks()).isZero();
         assertThat(realScanner.scanBlocks()).isEqualTo(1);
-        verify(client).getBlockDataByHeight(primary, 1011);
-        verify(client).getBlockDataByHeight(backup, 1011);
+        verify(client).getBlockDataByHeight(primary.toSdkEndpoint(), 1011);
+        verify(client).getBlockDataByHeight(backup.toSdkEndpoint(), 1011);
         verify(progress, never()).rewind(any(), any());
     }
 

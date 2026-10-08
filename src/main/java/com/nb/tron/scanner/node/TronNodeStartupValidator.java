@@ -1,7 +1,7 @@
 package com.nb.tron.scanner.node;
 
 import com.nb.core.exception.BizException;
-import com.nb.tron.scanner.enums.TronNodeRole;
+import com.nb.tron.sdk.enums.TronNodeRole;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.model.TronNodeRuntimeState;
 import lombok.RequiredArgsConstructor;

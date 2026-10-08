@@ -1,9 +1,9 @@
 package com.nb.tron.scanner.index;
 
 import com.nb.core.exception.BizAssert;
-import com.nb.tron.scanner.enums.TronTokenStandard;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.model.TronCurrencyConfig;
+import com.nb.tron.sdk.model.TronAsset;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
@@ -29,7 +29,7 @@ public class TronCurrencyIndex {
      * 查询原生币配置；未配置原生币时返回 null
      */
     public TronCurrencyConfig findNativeCurrency() {
-        return requireReadyState().currencies().get(CurrencyKey.nativeCurrency());
+        return requireReadyState().currencies().get(TronAsset.trx());
     }
 
     /**
@@ -39,7 +39,14 @@ public class TronCurrencyIndex {
         if (contractAddress == null) {
             return null;
         }
-        return requireReadyState().currencies().get(CurrencyKey.trc20(contractAddress));
+        return requireReadyState().currencies().get(TronAsset.trc20(contractAddress));
+    }
+
+    /**
+     * 一轮解析和事件组装共用这份不可变资产快照，同步更新不会改变已取出的快照。
+     */
+    public Map<TronAsset, TronCurrencyConfig> snapshot() {
+        return requireReadyState().currencies();
     }
 
     public boolean isReady() {
@@ -68,10 +75,10 @@ public class TronCurrencyIndex {
     private IndexState buildIndexState(List<TronCurrencyConfig> currencies) {
         BizAssert.notEmpty(currencies, ScannerBizErrCode.CURRENCY_CONFIG_INVALID);
 
-        Map<CurrencyKey, TronCurrencyConfig> currencyByIdentity = new HashMap<>(currencies.size());
+        Map<TronAsset, TronCurrencyConfig> currencyByIdentity = new HashMap<>(currencies.size());
         for (TronCurrencyConfig currency : currencies) {
             TronCurrencyConfig previous = currencyByIdentity.putIfAbsent(
-                CurrencyKey.from(currency),
+                currency.asset(),
                 currency);
             BizAssert.isTrue(previous == null, ScannerBizErrCode.CURRENCY_CONFIG_DUPLICATE);
         }
@@ -84,24 +91,9 @@ public class TronCurrencyIndex {
         return state;
     }
 
-    private record CurrencyKey(TronTokenStandard tokenStandard, String contractAddress) {
+    private record IndexState(Map<TronAsset, TronCurrencyConfig> currencies, boolean ready) {
 
-        private static CurrencyKey from(TronCurrencyConfig currency) {
-            return new CurrencyKey(currency.tokenStandard(), currency.contractAddress());
-        }
-
-        private static CurrencyKey nativeCurrency() {
-            return new CurrencyKey(TronTokenStandard.NATIVE, "");
-        }
-
-        private static CurrencyKey trc20(String contractAddress) {
-            return new CurrencyKey(TronTokenStandard.TRC20, contractAddress);
-        }
-    }
-
-    private record IndexState(Map<CurrencyKey, TronCurrencyConfig> currencies, boolean ready) {
-
-        private static IndexState ready(Map<CurrencyKey, TronCurrencyConfig> currencies) {
+        private static IndexState ready(Map<TronAsset, TronCurrencyConfig> currencies) {
             return new IndexState(Map.copyOf(currencies), true);
         }
 

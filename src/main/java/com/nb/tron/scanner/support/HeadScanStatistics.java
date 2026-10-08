@@ -95,7 +95,7 @@ public final class HeadScanStatistics {
     }
 
     /**
-     * 在 HTTP 入口累计本轮所有节点请求耗时，包含失败请求和分叉查找；范围外直接执行。
+     * 在节点读取入口累计SDK调用耗时，包含整块的多次HTTP、失败重试和分叉查找；范围外直接执行。
      */
     public static <T> T timeNodeRead(Supplier<T> action) {
         HeadScanStatistics statistics = CURRENT.get();

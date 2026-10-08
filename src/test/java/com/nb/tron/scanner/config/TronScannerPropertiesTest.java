@@ -1,8 +1,8 @@
 package com.nb.tron.scanner.config;
 
 import com.nb.core.exception.BizException;
-import com.nb.tron.scanner.enums.TronNodeRole;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
+import com.nb.tron.sdk.enums.TronNodeRole;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;

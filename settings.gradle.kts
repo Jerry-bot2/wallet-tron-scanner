@@ -19,3 +19,16 @@ if (useLocalNbCommon) {
     }
     includeBuild(localNbCommon)
 }
+
+val useLocalTronSdk = providers.gradleProperty("useLocalTronSdk")
+    .orElse(providers.environmentVariable("USE_LOCAL_TRON_SDK"))
+    .map(String::toBoolean)
+    .getOrElse(false)
+
+if (useLocalTronSdk) {
+    val localTronSdk = file("../wallet-tron-sdk")
+    check(localTronSdk.resolve("settings.gradle.kts").isFile) {
+        "启用本地TRON SDK源码联调时，必须存在 ../wallet-tron-sdk 项目"
+    }
+    includeBuild(localTronSdk)
+}

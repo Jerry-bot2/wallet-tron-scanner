@@ -1,6 +1,7 @@
 package com.nb.tron.scanner.config;
 
-import com.nb.tron.scanner.enums.TronNodeRole;
+import com.nb.tron.sdk.enums.TronNodeRole;
+import com.nb.tron.sdk.model.TronNodeEndpoint;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -40,4 +41,11 @@ public class TronNodeEndpointProperties {
      * TronGrid 访问凭证，自建节点允许为空。
      */
     private String apiKey;
+
+    /**
+     * 转换为SDK节点参数，优先级和健康状态仍由Scanner管理。
+     */
+    public TronNodeEndpoint toSdkEndpoint() {
+        return new TronNodeEndpoint(code, role, baseUrl, apiKey);
+    }
 }

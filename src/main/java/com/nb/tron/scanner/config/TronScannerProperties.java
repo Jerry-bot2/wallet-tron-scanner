@@ -2,7 +2,7 @@ package com.nb.tron.scanner.config;
 
 import com.nb.core.exception.BizAssert;
 import com.nb.tron.scanner.constant.TronConstants;
-import com.nb.tron.scanner.enums.TronNodeRole;
+import com.nb.tron.sdk.enums.TronNodeRole;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import jakarta.annotation.PostConstruct;
 import lombok.Getter;

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import com.nb.core.exception.BizException;
 import com.nb.mybatis.transaction.TransactionSupport;
+import com.nb.tron.scanner.biz.DepositDiscoveryService;
 import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.entity.TronScanCheckpoint;
 import com.nb.tron.scanner.entity.TronScannedBlock;
@@ -12,15 +13,14 @@ import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
 import com.nb.tron.scanner.mapper.TronScanCheckpointMapper;
 import com.nb.tron.scanner.mapper.TronScannedBlockMapper;
-import com.nb.tron.scanner.model.TronBlockData;
 import com.nb.tron.scanner.model.TronDepositEvent;
-import com.nb.tron.scanner.model.TronNodeHeight;
 import com.nb.tron.scanner.mq.publisher.DepositDiscoveryPublisher;
 import com.nb.tron.scanner.node.TronBlockHeaderReader;
 import com.nb.tron.scanner.node.TronNodeManager;
-import com.nb.tron.scanner.parser.TronBlockParser;
 import com.nb.tron.scanner.service.impl.TronScanCheckpointServiceImpl;
 import com.nb.tron.scanner.service.impl.TronScannedBlockServiceImpl;
+import com.nb.tron.sdk.model.TronBlockData;
+import com.nb.tron.sdk.model.TronNodeHeight;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,8 +30,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigInteger;
 import java.time.Instant;
@@ -336,7 +336,7 @@ class HeadScanPersistenceTest {
     void shouldDiscoverReplacementDepositAfterForkAndRestart() {
         var addressIndex = mock(TronAddressIndex.class);
         var currencyIndex = mock(TronCurrencyIndex.class);
-        var parser = mock(TronBlockParser.class);
+        var parser = mock(DepositDiscoveryService.class);
         var publisher = mock(DepositDiscoveryPublisher.class);
         when(addressIndex.isReady()).thenReturn(true);
         when(currencyIndex.isReady()).thenReturn(true);
@@ -348,12 +348,12 @@ class HeadScanPersistenceTest {
             return height(height, "h" + height);
         });
         when(nodeManager.getHeadHeight()).thenReturn(height(102, "h102"));
-        when(parser.parse(any())).thenReturn(List.of());
+        when(parser.discover(any())).thenReturn(List.of());
         for (long h = 100; h <= 102; h++) {
             when(nodeManager.getBlockDataByHeight(h)).thenReturn(block(h, "h" + h));
         }
         var oldDeposit = deposit("old-transaction", "h101");
-        when(parser.parse(block(101, "h101"))).thenReturn(List.of(oldDeposit));
+        when(parser.discover(block(101, "h101"))).thenReturn(List.of(oldDeposit));
         var scanner = scanner(progressService, addressIndex, currencyIndex, parser, publisher);
         assertThat(scanner.scanBlocks()).isEqualTo(3);
         verify(publisher).publishAndWait(block(101, "h101"), List.of(oldDeposit));
@@ -373,7 +373,7 @@ class HeadScanPersistenceTest {
         when(nodeManager.getBlockDataByHeight(101)).thenReturn(new101);
         when(nodeManager.getBlockDataByHeight(102)).thenReturn(new102);
         var newDeposit = deposit("replacement-transaction", "new101");
-        when(parser.parse(new101)).thenReturn(List.of(newDeposit));
+        when(parser.discover(new101)).thenReturn(List.of(newDeposit));
 
         assertThat(restartedScanner.scanBlocks()).isEqualTo(2);
         verify(publisher).publishAndWait(new101, List.of(newDeposit));
@@ -423,7 +423,7 @@ class HeadScanPersistenceTest {
     }
 
     private HeadBlockScanService scanner(HeadScanProgressService progress, TronAddressIndex addresses,
-                                        TronCurrencyIndex currencies, TronBlockParser parser,
+                                        TronCurrencyIndex currencies, DepositDiscoveryService parser,
                                         DepositDiscoveryPublisher publisher) {
         HeadBlockAncestorFinder finder = new HeadBlockAncestorFinder(nodeManager, scannedBlockService);
         HeadBlockContinuityService continuity = new HeadBlockContinuityService(nodeManager, finder, progress);
