@@ -77,43 +77,14 @@ XXL_JOB_ADMIN_ADDRESSES=http://xxl-job-admin:8080/xxl-job-admin
 ./gradlew clean build -PuseLocalNbCommon=true
 ```
 
-1.持久化基础：已完成
-2.链服务同步契约：已完成
-3.地址同步闭环：已完成
-4.TRON 节点能力 已完成（[图解](docs/学习笔记/02-TRON节点能力图解.md)）
-
-5.交易解析 已完成（[图解](docs/学习笔记/03-TRON交易解析图解.md)）
-
-6.充值发现闭环 已完成（[设计](docs/阶段6-充值发现闭环设计.md)、[图解](docs/学习笔记/04-充值发现闭环与分叉恢复图解.md)）
-
-7.固化确认闭环 完成
-8.生产保障
-
 
 地址 -> 地址分配基本完成
-充值 -> 目前针对TRON
+充值 -> 基本完成
 提现 -> 没有开始
 归集 -> 没有开始
 签名服务 -> 没有开始
 
-地址闭环
-7.0 地址闭环基础修正
-在写分配前先解决已经发现的两个问题：
-1. Scanner 分页响应和 ACK 增加服务端网络信息并进行一致性校验。
-2. Scanner 启动时先追平 Chain Server 地址，再允许扫块。
-3. 抽取链与网络作用域，避免后面的地址分配继续绑定唯一的 ChainRuntimeProperties。
-   第三项至少要把接口形式确定好。否则地址分配完成后再改多链，会重新修改 Controller、Service 和查询条件。
 
-
-7.1 申请地址契约
-7.2 地址分配数据库能力
-7.3 首次申请与重复申请
-7.4 并发申请收敛
-7.5 申请地址 Controller
-
-8.1 受控换址
-9. HOT 和 RESOURCE 地址受控创建
-10. 只读查询与验收
 BNB ETH TRON SOL BSC BTC
 
 

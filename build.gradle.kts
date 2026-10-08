@@ -11,6 +11,8 @@ val nbCommonVersion: String by project
 val tronSdkVersion: String by project
 val chainClientVersion: String by project
 val springCloudVersion: String by project
+val springCloudAlibabaVersion: String by project
+val nacosClientVersion: String by project
 
 repositories {
     mavenLocal()
@@ -21,6 +23,10 @@ dependencyManagement {
     imports {
         mavenBom("org.springframework.boot:spring-boot-dependencies:3.5.14")
         mavenBom("org.springframework.cloud:spring-cloud-dependencies:$springCloudVersion")
+        mavenBom("com.alibaba.cloud:spring-cloud-alibaba-dependencies:$springCloudAlibabaVersion")
+    }
+    dependencies {
+        dependency("com.alibaba.nacos:nacos-client:$nacosClientVersion")
     }
 }
 
@@ -40,6 +46,8 @@ dependencies {
     implementation("com.nb:nb-job-starter:$nbCommonVersion")
     implementation("com.nb:nb-mybatis-starter:$nbCommonVersion")
     implementation("com.nb:nb-observability-starter:$nbCommonVersion")
+    implementation("com.alibaba.cloud:spring-cloud-starter-alibaba-nacos-config")
+    implementation("com.alibaba.cloud:spring-cloud-starter-alibaba-nacos-discovery")
 
     runtimeOnly("com.mysql:mysql-connector-j")
 

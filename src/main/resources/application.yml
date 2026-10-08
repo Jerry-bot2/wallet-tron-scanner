@@ -4,35 +4,20 @@ server:
 spring:
   application:
     name: wallet-tron-scanner
-  datasource:
-    url: ${MYSQL_URL:jdbc:mysql://127.0.0.1:3306/wallet_tron_scanner?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC}
-    username: ${MYSQL_USERNAME:root}
-    password: ${MYSQL_PASSWORD:}
-    driver-class-name: com.mysql.cj.jdbc.Driver
-  kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:127.0.0.1:9092}
-
-mybatis-plus:
-  configuration:
-    map-underscore-to-camel-case: true
-
-xxl:
-  job:
-    enabled: ${XXL_JOB_ENABLED:false}
-
-nb:
-  chain:
-    client:
-      url: ${CHAIN_SERVICE_URL:http://127.0.0.1:8080}
-  tron:
-    scanner:
-      chain-network: ${TRON_NETWORK:MAINNET}
-      expected-genesis-block-id: ${TRON_GENESIS_BLOCK_ID:}
-      start-block-height: ${TRON_SCAN_START_BLOCK_HEIGHT:-1}
-      node:
-        nodes:
-          - code: full-primary
-            role: FULL_NODE
-            priority: 1
-            base-url: ${TRON_FULL_NODE_PRIMARY_URL:}
-            api-key: ${TRON_FULL_NODE_PRIMARY_API_KEY:}
+  config:
+    import:
+      - optional:nacos:${spring.application.name}.yaml
+  cloud:
+    nacos:
+      server-addr: ${NACOS_ADDR:192.168.6.100:8848}
+      username: ${NACOS_USERNAME:nacos}
+      password: ${NACOS_PASSWORD:nacos}
+      config:
+        namespace: ${NACOS_NAMESPACE:6205166a-baa1-4fc1-9fa2-e5967d23e304}
+        group: ${NACOS_GROUP:DEFAULT_GROUP}
+        file-extension: yaml
+      discovery:
+        namespace: ${NACOS_NAMESPACE:6205166a-baa1-4fc1-9fa2-e5967d23e304}
+        group: ${NACOS_GROUP:DEFAULT_GROUP}
+        ip: ${NACOS_REGISTER_IP:}
+        port: ${NACOS_REGISTER_PORT:${server.port}}
