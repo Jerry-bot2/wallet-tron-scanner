@@ -61,7 +61,7 @@ class DepositDiscoveryPublisherTest {
         DepositDiscoveryPublisher publisher = new DepositDiscoveryPublisher(new TronScannerProperties(), kafkaPublisher);
         when(kafkaPublisher.publish(anyString(), anyString(), any()))
             .thenReturn(CompletableFuture.completedFuture(new KafkaPublishResult(
-                ChainKafkaTopics.DEPOSIT_DISCOVERED, 0, 10L, 100L)));
+                ChainKafkaTopics.DEPOSIT_DISCOVERED_TOPIC, 0, 10L, 100L)));
         List<TronDepositEvent> deposits = IntStream.range(0, depositCount).mapToObj(this::deposit).toList();
 
         publisher.publishAndWait(blockData(), deposits);
@@ -72,7 +72,7 @@ class DepositDiscoveryPublisherTest {
         }
         ArgumentCaptor<ObservedBlockEvent> eventCaptor = ArgumentCaptor.captor();
         verify(kafkaPublisher, times(messageCount)).publish(
-            eq(ChainKafkaTopics.DEPOSIT_DISCOVERED), eq("TRON:MAINNET"), eventCaptor.capture());
+            eq(ChainKafkaTopics.DEPOSIT_DISCOVERED_TOPIC), eq("TRON:MAINNET"), eventCaptor.capture());
         List<ObservedBlockEvent> messages = eventCaptor.getAllValues();
         assertThat(messages.getLast().getDeposits()).hasSize(lastMessageSize);
         assertThat(messages.subList(0, messages.size() - 1))
@@ -97,7 +97,7 @@ class DepositDiscoveryPublisherTest {
         DepositDiscoveryPublisher publisher = new DepositDiscoveryPublisher(new TronScannerProperties(), kafkaPublisher);
         when(kafkaPublisher.publish(anyString(), anyString(), any()))
             .thenReturn(CompletableFuture.completedFuture(new KafkaPublishResult(
-                ChainKafkaTopics.DEPOSIT_DISCOVERED, 0, 10L, 100L)));
+                ChainKafkaTopics.DEPOSIT_DISCOVERED_TOPIC, 0, 10L, 100L)));
         TronBlockData blockData = new TronBlockData("full-primary", Long.MAX_VALUE,
             "a".repeat(64), "b".repeat(64), Instant.parse("2026-10-07T12:00:00.123456789Z"), List.of(), Map.of());
         // 使用较长的正常字段范围：32 位币种编码、64 位交易 ID、uint256 最大金额。
@@ -115,7 +115,7 @@ class DepositDiscoveryPublisherTest {
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         KafkaJsonMessageConverter converter = new KafkaJsonMessageConverter(objectMapper);
         var record = converter.fromMessage(MessageBuilder.withPayload(eventCaptor.getValue()).build(),
-            ChainKafkaTopics.DEPOSIT_DISCOVERED);
+            ChainKafkaTopics.DEPOSIT_DISCOVERED_TOPIC);
         byte[] messageBytes = ((String) record.value()).getBytes(StandardCharsets.UTF_8);
         assertThat(messageBytes.length).isLessThan(150 * 1024);
     }
@@ -128,7 +128,7 @@ class DepositDiscoveryPublisherTest {
             scannerProperties,
             kafkaPublisher);
         KafkaPublishResult publishResult = new KafkaPublishResult(
-            ChainKafkaTopics.DEPOSIT_DISCOVERED, 0, 10L, 100L);
+            ChainKafkaTopics.DEPOSIT_DISCOVERED_TOPIC, 0, 10L, 100L);
         when(kafkaPublisher.publish(
             anyString(),
             anyString(),
@@ -139,7 +139,7 @@ class DepositDiscoveryPublisherTest {
 
         ArgumentCaptor<ObservedBlockEvent> eventCaptor = ArgumentCaptor.captor();
         verify(kafkaPublisher).publish(
-            eq(ChainKafkaTopics.DEPOSIT_DISCOVERED),
+            eq(ChainKafkaTopics.DEPOSIT_DISCOVERED_TOPIC),
             eq("TRON:MAINNET"),
             eventCaptor.capture());
         ObservedBlockEvent blockEvent = eventCaptor.getValue();
@@ -158,7 +158,7 @@ class DepositDiscoveryPublisherTest {
         DepositDiscoveryPublisher publisher = new DepositDiscoveryPublisher(new TronScannerProperties(), kafkaPublisher);
         when(kafkaPublisher.publish(anyString(), anyString(), any()))
             .thenReturn(CompletableFuture.completedFuture(new KafkaPublishResult(
-                ChainKafkaTopics.DEPOSIT_DISCOVERED, 0, 10L, 100L)));
+                ChainKafkaTopics.DEPOSIT_DISCOVERED_TOPIC, 0, 10L, 100L)));
         TronDepositEvent nativeDeposit = new TronDepositEvent(
             "TRON", "MAINNET", "TRX", "", "tx-trx", -1, 100L, "block-100",
             Instant.parse("2026-10-03T12:00:00Z"), "TSender", "TReceiver", BigInteger.valueOf(1_000_000L));

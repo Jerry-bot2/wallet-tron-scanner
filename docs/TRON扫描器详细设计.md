@@ -209,7 +209,7 @@ ConcurrentHashMap<String, AddressPurpose>
 #### 查询扫描币种配置
 
 ```text
-GET /internal/v1/scanner/currencies?chainCode=TRON
+GET /chain/scanner/currencies?chainCode=TRON
 ```
 
 请求只包含 `chainCode`。链服务从当前环境配置取得 `chainNetwork`，响应只包含扫描需要的 `currency`、`tokenStandard`、`contractAddress` 和 `decimals`。
@@ -217,7 +217,7 @@ GET /internal/v1/scanner/currencies?chainCode=TRON
 #### 分页同步地址
 
 ```text
-GET /internal/v1/scanner/addresses?chainCode=TRON&afterId=0
+GET /chain/scanner/addresses?chainCode=TRON&afterId=0
 ```
 
 分页大小由链服务固定为 1000 条。每个地址只返回 `addressId`、`address` 和 `addressPurpose`。响应按 `addressId` 升序，额外返回 `maxAddressId` 和 `hasMore`。
@@ -225,7 +225,7 @@ GET /internal/v1/scanner/addresses?chainCode=TRON&afterId=0
 #### 确认监控水位
 
 ```text
-POST /internal/v1/scanner/addresses/ack
+POST /chain/scanner/addresses/ack
 ```
 
 请求包含 `chainCode` 和 `appliedMaxAddressId`。链服务从运行配置取得当前网络，只更新该网络中满足以下条件的地址：

@@ -69,7 +69,7 @@ public class DepositDiscoveryPublisher {
         // 每条消息携带相同的区块信息，deposits 只包含当前组的充值。
         ObservedBlockEvent blockEvent = toBlockEvent(blockData, deposits);
         try {
-            kafkaPublisher.publish(ChainKafkaTopics.DEPOSIT_DISCOVERED, blockEvent.messageKey(), blockEvent)
+            kafkaPublisher.publish(ChainKafkaTopics.DEPOSIT_DISCOVERED_TOPIC, blockEvent.messageKey(), blockEvent)
                 .get(scannerProperties.getKafkaAckTimeout().toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException exception) {
             // 任务线程被中断时保留中断标记，结束本轮。
