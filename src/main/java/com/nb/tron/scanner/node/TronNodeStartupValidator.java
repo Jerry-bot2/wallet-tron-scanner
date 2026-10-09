@@ -1,9 +1,10 @@
 package com.nb.tron.scanner.node;
 
 import com.nb.core.exception.BizException;
-import com.nb.tron.sdk.enums.TronNodeRole;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
-import com.nb.tron.scanner.model.TronNodeRuntimeState;
+import com.nb.tron.sdk.enums.TronNodeRole;
+import com.nb.tron.sdk.node.TronNodePool;
+import com.nb.tron.sdk.node.TronNodeState;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.ApplicationArguments;
@@ -28,7 +29,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class TronNodeStartupValidator implements ApplicationRunner {
 
-    private final TronNodeHealthService nodeHealthService;
+    private final TronNodePool nodePool;
 
     @Override
     public void run(ApplicationArguments args) {
@@ -48,7 +49,8 @@ public class TronNodeStartupValidator implements ApplicationRunner {
      * </p>
      */
     public void validateConfiguredNodes() {
-        List<TronNodeRuntimeState> nodeStates = nodeHealthService.refreshNodeStates();
+        nodePool.refresh();
+        List<TronNodeState> nodeStates = nodePool.states();
         long fullNodeCount = countHealthyNodes(nodeStates, TronNodeRole.FULL_NODE);
         long solidityNodeCount = countHealthyNodes(nodeStates, TronNodeRole.SOLIDITY_NODE);
 
@@ -59,16 +61,16 @@ public class TronNodeStartupValidator implements ApplicationRunner {
             solidityNodeCount);
     }
 
-    private long countHealthyNodes(List<TronNodeRuntimeState> nodeStates, TronNodeRole role) {
+    private long countHealthyNodes(List<TronNodeState> nodeStates, TronNodeRole role) {
         return nodeStates.stream()
-            .filter(TronNodeRuntimeState::isHealthy)
+            .filter(TronNodeState::isHealthy)
             .filter(state -> state.nodeRole() == role)
             .count();
     }
 
     private void validateStartupReadiness(long fullNodeCount) {
         if (fullNodeCount == 0) {
-            throw BizException.of(ScannerBizErrCode.TRON_NODE_UNAVAILABLE);
+            throw BizException.of(ScannerBizErrCode.TRON_SDK_CALL_FAILED);
         }
     }
 }

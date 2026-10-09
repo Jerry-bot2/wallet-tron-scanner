@@ -1,7 +1,6 @@
 package com.nb.tron.scanner.biz;
 
 import com.nb.core.exception.BizException;
-import com.nb.tron.scanner.biz.DepositDiscoveryService;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.entity.TronScanCheckpoint;
@@ -9,18 +8,20 @@ import com.nb.tron.scanner.entity.TronScannedBlock;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
-import com.nb.tron.scanner.model.TronNodeRuntimeState;
 import com.nb.tron.scanner.mq.publisher.DepositDiscoveryPublisher;
-import com.nb.tron.scanner.node.TronNodeHealthService;
 import com.nb.tron.scanner.node.TronNodeManager;
+import com.nb.tron.sdk.block.TronBlockGateway;
 import com.nb.tron.sdk.client.TronNodeClient;
 import com.nb.tron.sdk.enums.TronNodeRole;
 import com.nb.tron.sdk.model.TronBlockData;
 import com.nb.tron.sdk.model.TronNodeHeight;
+import com.nb.tron.sdk.node.TronNodePool;
+import com.nb.tron.sdk.node.TronNodePoolOptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -82,7 +83,7 @@ class HeadBlockScanRecoveryTest {
 
     @Test
     void shouldKeepProgressWhenCheckpointHeaderReadFails() {
-        BizException failure = BizException.of(ScannerBizErrCode.TRON_NODE_TIMEOUT);
+        BizException failure = BizException.of(ScannerBizErrCode.TRON_SDK_CALL_FAILED);
         when(manager.getBlockHeaderByHeight(1010)).thenThrow(failure);
 
         assertThatThrownBy(scanner::scanBlocks).isSameAs(failure);
@@ -146,13 +147,21 @@ class HeadBlockScanRecoveryTest {
         TronNodeEndpointProperties primary = endpoint("full-primary", 1);
         TronNodeEndpointProperties backup = endpoint("full-backup", 2);
         properties.getNode().setNodes(List.of(primary, backup));
-        TronNodeHealthService health = mock(TronNodeHealthService.class);
         TronNodeClient client = mock(TronNodeClient.class);
-        Instant healthySince = Instant.now().minusSeconds(120);
-        when(health.getNodeStates()).thenReturn(List.of(
-            TronNodeRuntimeState.success(primary.getCode(), TronNodeRole.FULL_NODE, null, 1011, 1, healthySince, System.nanoTime()),
-            TronNodeRuntimeState.success(backup.getCode(), TronNodeRole.FULL_NODE, null, 1011, 1, healthySince, System.nanoTime())));
-        TronNodeManager realManager = new TronNodeManager(properties, health, client);
+        when(client.getBlockHeaderByHeight(primary.toSdkEndpoint(), 0L))
+            .thenReturn(new TronNodeHeight(primary.getCode(), 0L, "genesis", Instant.EPOCH));
+        when(client.getBlockHeaderByHeight(backup.toSdkEndpoint(), 0L))
+            .thenReturn(new TronNodeHeight(backup.getCode(), 0L, "genesis", Instant.EPOCH));
+        when(client.getHeadHeight(primary.toSdkEndpoint()))
+            .thenReturn(new TronNodeHeight(primary.getCode(), 1011L, "h1011", Instant.EPOCH));
+        when(client.getHeadHeight(backup.toSdkEndpoint()))
+            .thenReturn(new TronNodeHeight(backup.getCode(), 1011L, "h1011", Instant.EPOCH));
+        TronNodePool nodePool = new TronNodePool(
+            List.of(primary.toSdkDefinition(), backup.toSdkDefinition()),
+            new TronNodePoolOptions("genesis", 3, 20, Duration.ofSeconds(60)),
+            client);
+        nodePool.refresh();
+        TronNodeManager realManager = new TronNodeManager(new TronBlockGateway(nodePool, client, 2));
         when(client.getHeadHeight(any())).thenReturn(height(1011));
         when(client.getBlockHeaderByHeight(any(), eq(1010L))).thenReturn(height(1010));
         when(client.getBlockDataByHeight(primary.toSdkEndpoint(), 1011)).thenReturn(new TronBlockData(primary.getCode(),
@@ -171,7 +180,7 @@ class HeadBlockScanRecoveryTest {
     @Test
     void shouldNotRewindWhenAncestorNodeReadFails() {
         when(manager.getBlockHeaderByHeight(1010)).thenReturn(new TronNodeHeight("full", 1010, "new1010", Instant.EPOCH));
-        when(finder.findCommonAncestor(checkpoint)).thenThrow(BizException.of(ScannerBizErrCode.TRON_NODE_TIMEOUT));
+        when(finder.findCommonAncestor(checkpoint)).thenThrow(BizException.of(ScannerBizErrCode.TRON_SDK_CALL_FAILED));
         assertThatThrownBy(scanner::scanBlocks).isInstanceOf(BizException.class);
         verifyNoInteractions(parser, publisher);
         verify(manager, never()).getHeadHeight();
@@ -218,7 +227,7 @@ class HeadBlockScanRecoveryTest {
 
     @Test
     void shouldStopRoundWhenProgressInitializationFails() {
-        BizException failure = BizException.of(ScannerBizErrCode.TRON_NODE_TIMEOUT);
+        BizException failure = BizException.of(ScannerBizErrCode.TRON_SDK_CALL_FAILED);
         when(progress.loadCheckpoint()).thenThrow(failure);
 
         assertThatThrownBy(scanner::scanBlocks).isSameAs(failure);

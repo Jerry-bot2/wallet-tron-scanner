@@ -1,10 +1,11 @@
 package com.nb.tron.scanner.node;
 
 import com.nb.core.exception.BizException;
-import com.nb.tron.scanner.enums.TronNodeHealthStatus;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
-import com.nb.tron.scanner.model.TronNodeRuntimeState;
+import com.nb.tron.sdk.enums.TronNodeHealthStatus;
 import com.nb.tron.sdk.enums.TronNodeRole;
+import com.nb.tron.sdk.node.TronNodePool;
+import com.nb.tron.sdk.node.TronNodeState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -14,6 +15,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -22,28 +24,29 @@ import static org.mockito.Mockito.when;
  */
 class TronNodeStartupValidatorTest {
 
-    private TronNodeHealthService nodeHealthService;
+    private TronNodePool nodePool;
 
     private TronNodeStartupValidator startupValidator;
 
     @BeforeEach
     void setUp() {
-        nodeHealthService = mock(TronNodeHealthService.class);
-        startupValidator = new TronNodeStartupValidator(nodeHealthService);
+        nodePool = mock(TronNodePool.class);
+        startupValidator = new TronNodeStartupValidator(nodePool);
     }
 
     @Test
     void shouldStartWhenFullNodeAndSolidityNodeAreHealthy() {
-        when(nodeHealthService.refreshNodeStates()).thenReturn(List.of(
+        when(nodePool.states()).thenReturn(List.of(
             healthyState("full-primary", TronNodeRole.FULL_NODE),
             healthyState("solidity-primary", TronNodeRole.SOLIDITY_NODE)));
 
         assertThatNoException().isThrownBy(startupValidator::validateConfiguredNodes);
+        verify(nodePool).refresh();
     }
 
     @Test
     void shouldIgnoreUnhealthyNode() {
-        when(nodeHealthService.refreshNodeStates()).thenReturn(List.of(
+        when(nodePool.states()).thenReturn(List.of(
             unhealthyState("full-wrong", TronNodeRole.FULL_NODE),
             healthyState("full-primary", TronNodeRole.FULL_NODE)));
 
@@ -52,27 +55,27 @@ class TronNodeStartupValidatorTest {
 
     @Test
     void shouldFailStartupWhenNoFullNodeIsHealthy() {
-        when(nodeHealthService.refreshNodeStates()).thenReturn(List.of(
+        when(nodePool.states()).thenReturn(List.of(
             unhealthyState("full-primary", TronNodeRole.FULL_NODE),
             healthyState("solidity-primary", TronNodeRole.SOLIDITY_NODE)));
 
         assertThatThrownBy(startupValidator::validateConfiguredNodes)
             .isInstanceOf(BizException.class)
             .extracting(exception -> ((BizException) exception).getErrorCode())
-            .isEqualTo(ScannerBizErrCode.TRON_NODE_UNAVAILABLE);
+            .isEqualTo(ScannerBizErrCode.TRON_SDK_CALL_FAILED);
     }
 
     @Test
     void shouldAllowStartupWhenOnlySolidityNodeIsUnhealthy() {
-        when(nodeHealthService.refreshNodeStates()).thenReturn(List.of(
+        when(nodePool.states()).thenReturn(List.of(
             healthyState("full-primary", TronNodeRole.FULL_NODE),
             unhealthyState("solidity-primary", TronNodeRole.SOLIDITY_NODE)));
 
         assertThatNoException().isThrownBy(startupValidator::validateConfiguredNodes);
     }
 
-    private TronNodeRuntimeState healthyState(String nodeCode, TronNodeRole nodeRole) {
-        return new TronNodeRuntimeState(
+    private TronNodeState healthyState(String nodeCode, TronNodeRole nodeRole) {
+        return new TronNodeState(
             nodeCode,
             nodeRole,
             TronNodeHealthStatus.HEALTHY,
@@ -80,12 +83,12 @@ class TronNodeStartupValidatorTest {
             0,
             10L,
             Instant.now(),
-            Instant.now(),
-            System.nanoTime());
+            System.nanoTime(),
+            null);
     }
 
-    private TronNodeRuntimeState unhealthyState(String nodeCode, TronNodeRole nodeRole) {
-        return new TronNodeRuntimeState(
+    private TronNodeState unhealthyState(String nodeCode, TronNodeRole nodeRole) {
+        return new TronNodeState(
             nodeCode,
             nodeRole,
             TronNodeHealthStatus.UNHEALTHY,
@@ -93,7 +96,7 @@ class TronNodeStartupValidatorTest {
             3,
             10L,
             null,
-            null,
-            0L);
+            0L,
+            null);
     }
 }

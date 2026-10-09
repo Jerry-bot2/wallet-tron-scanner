@@ -131,7 +131,7 @@ class HeadScanPersistenceTest {
     @Test
     void shouldLeaveDatabaseEmptyWhenInitialBlockCannotBeRead() {
         when(nodeManager.getBlockHeaderByHeight(99))
-            .thenThrow(BizException.of(ScannerBizErrCode.TRON_BLOCK_NOT_FOUND));
+            .thenThrow(BizException.of(ScannerBizErrCode.TRON_SDK_CALL_FAILED));
         assertThatThrownBy(progressService::loadCheckpoint).isInstanceOf(BizException.class);
         assertThat(checkpointService.findByNetwork("MAINNET")).isNull();
         assertThat(scannedBlockService.findOldestBlock("MAINNET")).isNull();

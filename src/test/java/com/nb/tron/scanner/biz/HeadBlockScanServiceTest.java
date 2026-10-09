@@ -155,7 +155,7 @@ class HeadBlockScanServiceTest {
 
     @Test
     void shouldRetrySameBlockOnNextRunWhenBlockReadFails() {
-        BizException exception = BizException.of(ScannerBizErrCode.TRON_NODE_UNAVAILABLE);
+        BizException exception = BizException.of(ScannerBizErrCode.TRON_SDK_CALL_FAILED);
         when(progressService.loadCheckpoint())
             .thenReturn(checkpoint(99L, "block-99"));
         when(nodeManager.getHeadHeight()).thenReturn(nodeHeight(100L));
@@ -177,7 +177,7 @@ class HeadBlockScanServiceTest {
 
     @Test
     void shouldRetrySameBlockOnNextRunWhenBlockParsingFails() {
-        BizException exception = BizException.of(ScannerBizErrCode.TRON_TRANSACTION_INVALID);
+        BizException exception = BizException.of(ScannerBizErrCode.TRON_SDK_DATA_INVALID);
         TronBlockData blockData = blockData(100L);
         when(progressService.loadCheckpoint())
             .thenReturn(checkpoint(99L, "block-99"));

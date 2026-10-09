@@ -164,7 +164,7 @@ class DepositDiscoveryTrc20Test {
         assertThatThrownBy(() -> discoveryService.discover(block(transaction, receipt)))
             .isInstanceOf(BizException.class)
             .extracting(exception -> ((BizException) exception).getErrorCode())
-            .isEqualTo(ScannerBizErrCode.TRON_TRANSACTION_INVALID);
+            .isEqualTo(ScannerBizErrCode.TRON_SDK_DATA_INVALID);
     }
 
     private TronTransaction transaction(String result) {

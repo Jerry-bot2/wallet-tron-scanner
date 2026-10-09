@@ -55,7 +55,7 @@ public class HeadBlockContinuityService {
      * 例如刚扫完 1000，1001 的父 Hash 必须是 H1000；一轮内也可能分叉，因此逐块比较。
      */
     public boolean isNextBlockContinuous(TronScanCheckpoint checkpoint, TronBlockData blockData) {
-        BizAssert.isTrue(blockData.blockHeight() == checkpoint.getLastBlockNumber() + 1, ScannerBizErrCode.TRON_NODE_RESPONSE_INVALID);
+        BizAssert.isTrue(blockData.blockHeight() == checkpoint.getLastBlockNumber() + 1, ScannerBizErrCode.TRON_SDK_DATA_INVALID);
         return checkpoint.getLastBlockNumber() < 0
             || Objects.equals(checkpoint.getLastBlockHash(), blockData.parentBlockId());
     }

@@ -126,8 +126,8 @@ class HeadBlockAncestorFinderTest {
     @Test
     void shouldPropagateRpcFailureWithoutTreatingItAsHashMismatch() {
         history(100, 110, 106);
-        when(reader.getBlockHeaderByHeight(105)).thenThrow(BizException.of(ScannerBizErrCode.TRON_NODE_TIMEOUT));
-        assertError(110, ScannerBizErrCode.TRON_NODE_TIMEOUT);
+        when(reader.getBlockHeaderByHeight(105)).thenThrow(BizException.of(ScannerBizErrCode.TRON_SDK_CALL_FAILED));
+        assertError(110, ScannerBizErrCode.TRON_SDK_CALL_FAILED);
         verify(reader, never()).getBlockHeaderByHeight(102);
     }
 

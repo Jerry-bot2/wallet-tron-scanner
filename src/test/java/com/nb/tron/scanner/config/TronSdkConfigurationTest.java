@@ -3,8 +3,10 @@ package com.nb.tron.scanner.config;
 import com.nb.tron.scanner.biz.DepositDiscoveryService;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
-import com.nb.tron.sdk.client.TronNodeClient;
+import com.nb.tron.sdk.TronSdkClient;
+import com.nb.tron.sdk.block.TronBlockGateway;
 import com.nb.tron.sdk.codec.TronAddressCodec;
+import com.nb.tron.sdk.node.TronNodePool;
 import com.nb.tron.sdk.parser.TronBlockParser;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -23,7 +25,7 @@ import static org.mockito.Mockito.mock;
  * Author: bin jack
  * Date: 07.10.26
  */
-class TronHttpConfigurationTest {
+class TronSdkConfigurationTest {
 
     @Test
     void shouldWireSdkAndScannerComponents() {
@@ -32,10 +34,12 @@ class TronHttpConfigurationTest {
             .withBean(TronScannerProperties.class, this::properties)
             .withBean(TronAddressIndex.class, () -> mock(TronAddressIndex.class))
             .withBean(TronCurrencyIndex.class, TronCurrencyIndex::new)
-            .withUserConfiguration(TronHttpConfiguration.class, DepositDiscoveryService.class)
+            .withUserConfiguration(TronSdkConfiguration.class, DepositDiscoveryService.class)
             .run(context -> {
                 assertThat(context).hasNotFailed();
-                assertThat(context).hasSingleBean(TronNodeClient.class);
+                assertThat(context).hasSingleBean(TronSdkClient.class);
+                assertThat(context).hasSingleBean(TronNodePool.class);
+                assertThat(context).hasSingleBean(TronBlockGateway.class);
                 assertThat(context).hasSingleBean(TronAddressCodec.class);
                 assertThat(context).hasSingleBean(TronBlockParser.class);
                 assertThat(context).hasSingleBean(DepositDiscoveryService.class);

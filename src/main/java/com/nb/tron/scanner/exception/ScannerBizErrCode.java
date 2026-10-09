@@ -30,27 +30,16 @@ public enum ScannerBizErrCode implements IBizErrCode {
     ADDRESS_SYNC_SAVE_FAILED(912004, "地址同步数据保存失败"),
     ADDRESS_SYNC_ACK_FAILED(912005, "确认链服务地址监控水位失败"),
 
-    /// ////////////////////////////////////// TRON 节点 /////////////////////////////////////////
-    TRON_NODE_CONFIG_INVALID(913001, "TRON 节点配置不合法"),
-    TRON_NODE_CONNECT_FAILED(913002, "TRON 节点连接失败"),
-    TRON_NODE_TIMEOUT(913003, "TRON 节点请求超时"),
-    TRON_NODE_RATE_LIMITED(913004, "TRON 节点请求被限流"),
-    TRON_NODE_REMOTE_ERROR(913005, "TRON 节点返回错误"),
-    TRON_NODE_RESPONSE_INVALID(913006, "TRON 节点响应不合法"),
-    TRON_NODE_NETWORK_MISMATCH(913007, "TRON 节点网络不匹配"),
-    TRON_BLOCK_NOT_FOUND(913008, "TRON 区块不存在或节点尚未同步"),
-    TRON_NODE_UNAVAILABLE(913009, "没有可用的 TRON 节点"),
+    /// ////////////////////////////////////// TRON SDK /////////////////////////////////////////
+    TRON_SDK_CONFIG_INVALID(913001, "TRON SDK 配置不合法"),
+    TRON_SDK_CALL_FAILED(913002, "TRON SDK 调用失败"),
+    TRON_SDK_DATA_INVALID(913003, "TRON SDK 返回或解析的数据不合法"),
 
     /// ////////////////////////////////////// 币种配置 /////////////////////////////////////////
     CURRENCY_INDEX_NOT_READY(914001, "币种配置内存快照尚未就绪"),
     CURRENCY_SYNC_REMOTE_CALL_FAILED(914002, "查询链服务币种配置失败"),
     CURRENCY_CONFIG_INVALID(914003, "币种配置不合法"),
     CURRENCY_CONFIG_DUPLICATE(914004, "币种配置存在重复资产"),
-
-    /// ////////////////////////////////////// TRON 交易解析 /////////////////////////////////////////
-    TRON_ADDRESS_INVALID(915001, "TRON 地址格式不合法"),
-    TRON_TRANSACTION_INVALID(915002, "TRON 交易数据不合法"),
-    TRON_BLOCK_DATA_INCOMPLETE(915003, "TRON 区块交易或回执数据不完整"),
 
     /// ////////////////////////////////////// Head 区块扫描 /////////////////////////////////////////
     HEAD_SCAN_CHECKPOINT_SAVE_FAILED(916001, "Head 扫块进度保存失败"),

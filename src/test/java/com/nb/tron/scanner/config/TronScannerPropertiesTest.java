@@ -27,17 +27,6 @@ class TronScannerPropertiesTest {
     }
 
     @Test
-    void shouldRejectDuplicateNodeCode() {
-        TronScannerProperties properties = validProperties();
-        properties.getNode().getNodes().get(1).setCode("primary");
-
-        assertThatThrownBy(properties::validate)
-            .isInstanceOf(BizException.class)
-            .extracting(exception -> ((BizException) exception).getErrorCode())
-            .isEqualTo(ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
-    }
-
-    @Test
     void shouldRequireFullNode() {
         TronScannerProperties properties = validProperties();
         properties.getNode().setNodes(List.of(
@@ -46,7 +35,7 @@ class TronScannerPropertiesTest {
         assertThatThrownBy(properties::validate)
             .isInstanceOf(BizException.class)
             .extracting(exception -> ((BizException) exception).getErrorCode())
-            .isEqualTo(ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
+            .isEqualTo(ScannerBizErrCode.TRON_SDK_CONFIG_INVALID);
     }
 
     @Test

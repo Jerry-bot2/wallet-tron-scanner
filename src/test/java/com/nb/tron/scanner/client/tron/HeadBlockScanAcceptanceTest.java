@@ -20,10 +20,9 @@ import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
 import com.nb.tron.scanner.job.HeadBlockScanJob;
 import com.nb.tron.scanner.model.TronCurrencyConfig;
-import com.nb.tron.scanner.model.TronNodeRuntimeState;
 import com.nb.tron.scanner.mq.publisher.DepositDiscoveryPublisher;
-import com.nb.tron.scanner.node.TronNodeHealthService;
 import com.nb.tron.scanner.node.TronNodeManager;
+import com.nb.tron.sdk.block.TronBlockGateway;
 import com.nb.tron.scanner.support.HeadScanTestDatabase;
 import com.nb.tron.sdk.client.TronHttpTransport;
 import com.nb.tron.sdk.client.TronNodeClient;
@@ -31,6 +30,8 @@ import com.nb.tron.sdk.codec.JsonCodec;
 import com.nb.tron.sdk.codec.TronAddressCodec;
 import com.nb.tron.sdk.enums.TronNodeRole;
 import com.nb.tron.sdk.enums.TronTokenStandard;
+import com.nb.tron.sdk.node.TronNodePool;
+import com.nb.tron.sdk.node.TronNodePoolOptions;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -84,7 +85,7 @@ class HeadBlockScanAcceptanceTest {
     private TronScannerProperties properties;
     private TronNodeEndpointProperties endpoint;
     private TronNodeClient nodeClient;
-    private TronNodeHealthService healthService;
+    private TronNodePool nodePool;
     private TronAddressIndex addressIndex;
     private TronCurrencyIndex currencyIndex;
     private DepositDiscoveryService parser;
@@ -100,6 +101,7 @@ class HeadBlockScanAcceptanceTest {
     void setUp() throws Exception {
         blockSample = (ObjectNode) readSample("/samples/tron/block-100.json");
         receiptSample = (ArrayNode) readSample("/samples/tron/transaction-info-100.json");
+        chain.put(0L, sample(0L, "h0", "", 0));
         for (long height = 99; height <= 106; height++) {
             int deposits = height == 100 ? 1 : height == 101 ? 2 : 0;
             chain.put(height, sample(height, "h" + height, "h" + (height - 1), deposits));
@@ -129,6 +131,7 @@ class HeadBlockScanAcceptanceTest {
 
         properties = new TronScannerProperties();
         properties.setStartBlockHeight(100L);
+        properties.setExpectedGenesisBlockId("h0");
         endpoint = new TronNodeEndpointProperties();
         endpoint.setCode("sample-full-node");
         endpoint.setRole(TronNodeRole.FULL_NODE);
@@ -138,10 +141,6 @@ class HeadBlockScanAcceptanceTest {
         JsonCodec jsonCodec = new JsonCodec(objectMapper);
         TronAddressCodec addressCodec = new TronAddressCodec();
         nodeClient = new TronNodeClient(new TronHttpTransport(HttpClient.newHttpClient(), jsonCodec, properties.getNode().getReadTimeout(), properties.getNode().getMaxResponseSize().toBytes()));
-        healthService = mock(TronNodeHealthService.class);
-        when(healthService.getNodeStates()).thenReturn(List.of(TronNodeRuntimeState.success(
-            endpoint.getCode(), TronNodeRole.FULL_NODE, null, 106, 1, Instant.now().minusSeconds(120), System.nanoTime())));
-
         addressIndex = mock(TronAddressIndex.class);
         when(addressIndex.isReady()).thenReturn(true);
         when(addressIndex.findPurpose(addressCodec.fromHex("411111111111111111111111111111111111111111")))
@@ -389,18 +388,27 @@ class HeadBlockScanAcceptanceTest {
      */
     private void prepareCleanupBoundarySamples() {
         chain.clear();
+        chain.put(0L, sample(0L, "h0", "", 0));
         for (long height = 193; height <= 200; height++) {
             int deposits = height == 194 ? 1 : height == 195 ? 2 : 0;
             chain.put(height, sample(height, "h" + height, "h" + (height - 1), deposits));
         }
         properties.setStartBlockHeight(194L);
-        when(healthService.getNodeStates()).thenReturn(List.of(TronNodeRuntimeState.success(
-            endpoint.getCode(), TronNodeRole.FULL_NODE, null, 200, 1, Instant.now().minusSeconds(120), System.nanoTime())));
         restartScanner();
     }
 
     private void restartScanner() {
-        var manager = new TronNodeManager(properties, healthService, nodeClient);
+        // 模拟整个 Scanner 进程重启：节点健康快照和故障冷却也应重新建立。
+        nodePool = new TronNodePool(
+            List.of(endpoint.toSdkDefinition()),
+            new TronNodePoolOptions(
+                properties.getExpectedGenesisBlockId(),
+                properties.getNode().getFailureThreshold(),
+                properties.getNode().getHeightLagThreshold(),
+                properties.getNode().getRecoveryCooldown()),
+            nodeClient);
+        nodePool.refresh();
+        var manager = new TronNodeManager(new TronBlockGateway(nodePool, nodeClient, 2));
         var progress = database.progress(properties, manager);
         var finder = new HeadBlockAncestorFinder(manager, database.blocks());
         var continuity = new HeadBlockContinuityService(manager, finder, progress);

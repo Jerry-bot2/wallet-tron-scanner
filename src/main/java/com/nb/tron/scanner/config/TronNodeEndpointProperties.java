@@ -2,6 +2,7 @@ package com.nb.tron.scanner.config;
 
 import com.nb.tron.sdk.enums.TronNodeRole;
 import com.nb.tron.sdk.model.TronNodeEndpoint;
+import com.nb.tron.sdk.node.TronNodeDefinition;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -43,9 +44,16 @@ public class TronNodeEndpointProperties {
     private String apiKey;
 
     /**
-     * 转换为SDK节点参数，优先级和健康状态仍由Scanner管理。
+     * 转换为SDK低层节点参数，供测试或诊断代码直接访问单个节点。
      */
     public TronNodeEndpoint toSdkEndpoint() {
         return new TronNodeEndpoint(code, role, baseUrl, apiKey);
+    }
+
+    /**
+     * 转换为SDK节点池配置，节点选择优先级一并交给SDK管理。
+     */
+    public TronNodeDefinition toSdkDefinition() {
+        return new TronNodeDefinition(code, role, priority, baseUrl, apiKey);
     }
 }

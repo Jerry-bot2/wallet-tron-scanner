@@ -6,16 +6,18 @@ import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.entity.TronScanCheckpoint;
 import com.nb.tron.scanner.entity.TronScannedBlock;
-import com.nb.tron.scanner.node.TronNodeHealthService;
 import com.nb.tron.scanner.node.TronNodeManager;
 import com.nb.tron.scanner.node.TronNodeStartupValidator;
 import com.nb.tron.scanner.support.HeadScanTestDatabase;
+import com.nb.tron.sdk.block.TronBlockGateway;
 import com.nb.tron.sdk.client.TronHttpTransport;
 import com.nb.tron.sdk.client.TronNodeClient;
 import com.nb.tron.sdk.codec.JsonCodec;
 import com.nb.tron.sdk.enums.TronNodeRole;
 import com.nb.tron.sdk.model.TronBlockData;
 import com.nb.tron.sdk.model.TronNodeHeight;
+import com.nb.tron.sdk.node.TronNodePool;
+import com.nb.tron.sdk.node.TronNodePoolOptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -152,9 +154,18 @@ class TronNodeTestnetAcceptanceTest {
     }
 
     private TronNodeManager validatedManager() {
-        TronNodeHealthService health = new TronNodeHealthService(properties, nodeClient);
-        new TronNodeStartupValidator(health).validateConfiguredNodes();
-        return new TronNodeManager(properties, health, nodeClient);
+        TronNodePool nodePool = new TronNodePool(
+            properties.getNode().getNodes().stream()
+                .map(TronNodeEndpointProperties::toSdkDefinition)
+                .toList(),
+            new TronNodePoolOptions(
+                properties.getExpectedGenesisBlockId(),
+                properties.getNode().getFailureThreshold(),
+                properties.getNode().getHeightLagThreshold(),
+                properties.getNode().getRecoveryCooldown()),
+            nodeClient);
+        new TronNodeStartupValidator(nodePool).validateConfiguredNodes();
+        return new TronNodeManager(new TronBlockGateway(nodePool, nodeClient, 2));
     }
 
     private String injectedOldHash(String blockId) {

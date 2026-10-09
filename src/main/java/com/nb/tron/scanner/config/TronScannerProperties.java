@@ -10,11 +10,8 @@ import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-import java.net.URI;
 import java.time.Duration;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * TRON 扫描器运行配置
@@ -87,7 +84,7 @@ public class TronScannerProperties {
         BizAssert.isTrue(isPositive(kafkaAckTimeout) && kafkaAckTimeout.toMillis() > 0,
             ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.isTrue(blockHistorySize >= 2, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
-        BizAssert.hasText(expectedGenesisBlockId, ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
+        BizAssert.hasText(expectedGenesisBlockId, ScannerBizErrCode.TRON_SDK_CONFIG_INVALID);
     }
 
     private void validateNodePolicy() {
@@ -100,41 +97,19 @@ public class TronScannerProperties {
             && node.getMaxResponseSize().toBytes() > 0
             && node.getMaxResponseSize().toBytes() < Integer.MAX_VALUE;
 
-        BizAssert.isTrue(validTimeouts && validThresholds && validResponseSize, ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
+        BizAssert.isTrue(validTimeouts && validThresholds && validResponseSize, ScannerBizErrCode.TRON_SDK_CONFIG_INVALID);
     }
 
     private void validateNodes() {
         List<TronNodeEndpointProperties> nodes = node.getNodes();
-        BizAssert.notEmpty(nodes, ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
-
-        Set<String> nodeCodes = new HashSet<>();
-        Set<TronNodeRole> nodeRoles = new HashSet<>();
-        for (TronNodeEndpointProperties endpoint : nodes) {
-            BizAssert.notNull(endpoint, ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
-            BizAssert.hasText(endpoint.getCode(), ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
-            BizAssert.notNull(endpoint.getRole(), ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
-            BizAssert.isTrue(endpoint.getPriority() > 0, ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
-            BizAssert.isTrue(isRootHttpUrl(endpoint.getBaseUrl()), ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
-            BizAssert.isTrue(nodeCodes.add(endpoint.getCode()), ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
-            nodeRoles.add(endpoint.getRole());
-        }
-
-        BizAssert.isTrue(nodeRoles.contains(TronNodeRole.FULL_NODE), ScannerBizErrCode.TRON_NODE_CONFIG_INVALID);
+        BizAssert.notEmpty(nodes, ScannerBizErrCode.TRON_SDK_CONFIG_INVALID);
+        boolean fullNodeConfigured = nodes.stream()
+            .anyMatch(endpoint -> endpoint != null && endpoint.getRole() == TronNodeRole.FULL_NODE);
+        BizAssert.isTrue(fullNodeConfigured, ScannerBizErrCode.TRON_SDK_CONFIG_INVALID);
     }
 
     private boolean isPositive(Duration duration) {
         return duration != null && !duration.isZero() && !duration.isNegative();
     }
 
-    private boolean isRootHttpUrl(URI uri) {
-        if (uri == null || uri.getHost() == null) {
-            return false;
-        }
-        String path = uri.getPath();
-        return ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
-            && (path == null || path.isEmpty() || "/".equals(path))
-            && uri.getQuery() == null
-            && uri.getFragment() == null
-            && uri.getUserInfo() == null;
-    }
 }
