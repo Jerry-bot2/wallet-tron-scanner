@@ -212,7 +212,7 @@ ConcurrentHashMap<String, AddressPurpose>
 GET /chain/scanner/currencies?chainCode=TRON
 ```
 
-请求只包含 `chainCode`。链服务从当前环境配置取得 `chainNetwork`，响应只包含扫描需要的 `currency`、`tokenStandard`、`contractAddress` 和 `decimals`。
+请求只包含 `chainCode`，响应只包含扫描需要的 `currency`、`tokenStandard`、`contractAddress` 和 `decimals`。
 
 #### 分页同步地址
 
@@ -420,7 +420,6 @@ TRX 使用负数、TRC20 日志使用非负数，可以保证同一交易内事�
 | 字段 | 说明 |
 | --- | --- |
 | `chainCode` | 固定 `TRON` |
-| `chainNetwork` | 当前运行网络 |
 | `currency` | `TRX` 或 `USDT` |
 | `contractAddress` | TRX 为空，TRC20 为合约地址 |
 | `txId` | 链上交易 ID |
@@ -442,19 +441,19 @@ scanner 按区块发送充值发现事件：
 
 ```text
 Topic: wallet.chain.deposit.discovered
-Key:   chainCode + ":" + chainNetwork
+Key:   chainCode
 Value: ObservedBlockEvent
 ```
 
-事件契约定义在 `chain-client`。`ObservedBlockEvent` 保存链、网络、区块高度、当前区块 Hash、父区块 Hash、区块时间和本区块充值事实列表。每条 `DepositDiscoveryEvent` 保存币种、合约地址、`txId + eventIndex`、付款地址、收款地址和 `rawAmount`。
+事件契约定义在 `chain-client`。`ObservedBlockEvent` 保存链编码、区块高度、当前区块 Hash、父区块 Hash、区块时间和本区块充值事实列表。每条 `DepositDiscoveryEvent` 保存币种、合约地址、`txId + eventIndex`、付款地址、收款地址和 `rawAmount`。
 
 链服务消费消息时：
 
-1. 校验链、网络和区块字段。
+1. 校验链编码和区块字段。
 2. 根据 `currency + contractAddress` 找到 `chain_currency_config`。
 3. 根据 `toAddress` 找到 `chain_address`。
 4. 识别并排除可以匹配到平台业务单的内部资金移动。
-5. 使用 `(chain_code, chain_network, tx_id, event_index)` 幂等写入 `chain_deposit`，初始状态为 `CONFIRMING`。
+5. 使用 `(chain_code, tx_id, event_index)` 幂等写入 `chain_deposit`，初始状态为 `CONFIRMING`。
 6. 同一消息中的事件全部处理成功后提交 Kafka 消费位点。
 
 scanner 只有收到 Kafka Broker ACK 后才推进本地区块检查点。发送失败时保留原检查点并重新扫描；发送成功但检查点更新失败时允许重复发送，由链服务幂等去重。没有命中平台地址的空区块不发送消息，可以直接推进本地检查点。
@@ -503,7 +502,7 @@ scanner 至少配置一个 FullNode，生产建议配置主备节点，用于 He
 | 地址同步 | `source_address_id` 和网络地址唯一键 |
 | 地址 ACK | `appliedMaxAddressId` 水位，只允许向前 |
 | 区块扫描 | 单线程写入扫描检查点 |
-| 充值上报 | `chain_code + chain_network + tx_id + event_index` |
+| 充值上报 | `chain_code + tx_id + event_index` |
 
 ### 11.2 多实例
 

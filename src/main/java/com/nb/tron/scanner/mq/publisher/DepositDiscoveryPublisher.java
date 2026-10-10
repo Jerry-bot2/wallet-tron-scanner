@@ -24,7 +24,7 @@ import static com.nb.tron.scanner.constant.TronConstants.DEPOSIT_MESSAGE_BATCH_S
 /**
  * 充值发现消息发布器
  *
- * <p>把 Scanner 内部解析模型转换成 chain-client 公共事件，按链和网络
+ * <p>把 Scanner 内部解析模型转换成 chain-client 公共事件，按链
  * 使用固定消息 Key 发送到 Kafka，并等待 Broker 确认。</p>
  * <p>
  * Author: bin jack
@@ -92,7 +92,6 @@ public class DepositDiscoveryPublisher {
     private ObservedBlockEvent toBlockEvent(TronBlockData blockData, List<TronDepositEvent> deposits) {
         return new ObservedBlockEvent()
             .setChainCode(scannerProperties.getChainCode())
-            .setChainNetwork(scannerProperties.getChainNetwork())
             .setBlockNumber(blockData.blockHeight())
             .setBlockHash(blockData.blockId())
             .setParentBlockHash(blockData.parentBlockId())

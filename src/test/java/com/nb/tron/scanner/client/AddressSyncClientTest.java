@@ -97,9 +97,9 @@ class AddressSyncClientTest {
     }
 
     @Test
-    void shouldRejectAddressPageFromAnotherNetwork() {
+    void shouldRejectAddressPageFromAnotherChain() {
         ScannerAddressPageResp addressPage = page(List.of(), 10L, false)
-            .setChainNetwork("NILE");
+            .setChainCode("ETH");
         when(chainScannerClient.listAddresses("TRON", 10L)).thenReturn(Result.success(addressPage));
 
         assertThatThrownBy(() -> addressSyncClient.pullNextPage(10L))
@@ -113,7 +113,6 @@ class AddressSyncClientTest {
                                         boolean hasMore) {
         return new ScannerAddressPageResp()
             .setChainCode("TRON")
-            .setChainNetwork("MAINNET")
             .setAddresses(addresses)
             .setMaxAddressId(maxAddressId)
             .setHasMore(hasMore);

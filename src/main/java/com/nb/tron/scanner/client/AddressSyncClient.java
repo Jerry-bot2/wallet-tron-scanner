@@ -59,13 +59,13 @@ public class AddressSyncClient {
     }
 
     /**
-     * Chain Server 决定当前环境使用的网络，Scanner 只核对响应是否与自身运行网络一致。
+     * 核对 Chain Server 返回的链编码，防止把其他链的地址写入 TRON Scanner。
      */
     private void validateScope(ScannerAddressPageResp addressPage) {
         BizAssert.notNull(addressPage, ScannerBizErrCode.ADDRESS_SYNC_PAGE_INVALID);
-        boolean sameScope = Objects.equals(scannerProperties.getChainCode(), addressPage.getChainCode())
-            && Objects.equals(scannerProperties.getChainNetwork(), addressPage.getChainNetwork());
-        BizAssert.isTrue(sameScope, ScannerBizErrCode.ADDRESS_SYNC_PAGE_INVALID);
+        BizAssert.isTrue(
+            Objects.equals(scannerProperties.getChainCode(), addressPage.getChainCode()),
+            ScannerBizErrCode.ADDRESS_SYNC_PAGE_INVALID);
     }
 
     /**

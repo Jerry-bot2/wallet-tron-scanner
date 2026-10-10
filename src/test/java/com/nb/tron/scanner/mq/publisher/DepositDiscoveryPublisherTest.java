@@ -72,14 +72,13 @@ class DepositDiscoveryPublisherTest {
         }
         ArgumentCaptor<ObservedBlockEvent> eventCaptor = ArgumentCaptor.captor();
         verify(kafkaPublisher, times(messageCount)).publish(
-            eq(ChainKafkaTopics.DEPOSIT_DISCOVERED_TOPIC), eq("TRON:MAINNET"), eventCaptor.capture());
+            eq(ChainKafkaTopics.DEPOSIT_DISCOVERED_TOPIC), eq("TRON"), eventCaptor.capture());
         List<ObservedBlockEvent> messages = eventCaptor.getAllValues();
         assertThat(messages.getLast().getDeposits()).hasSize(lastMessageSize);
         assertThat(messages.subList(0, messages.size() - 1))
             .allSatisfy(message -> assertThat(message.getDeposits()).hasSize(300));
         assertThat(messages).allSatisfy(message -> {
             assertThat(message.getChainCode()).isEqualTo("TRON");
-            assertThat(message.getChainNetwork()).isEqualTo("MAINNET");
             assertThat(message.getBlockNumber()).isEqualTo(100L);
             assertThat(message.getBlockHash()).isEqualTo("block-100");
             assertThat(message.getParentBlockHash()).isEqualTo("block-99");
@@ -140,7 +139,7 @@ class DepositDiscoveryPublisherTest {
         ArgumentCaptor<ObservedBlockEvent> eventCaptor = ArgumentCaptor.captor();
         verify(kafkaPublisher).publish(
             eq(ChainKafkaTopics.DEPOSIT_DISCOVERED_TOPIC),
-            eq("TRON:MAINNET"),
+            eq("TRON"),
             eventCaptor.capture());
         ObservedBlockEvent blockEvent = eventCaptor.getValue();
         assertThat(blockEvent.getBlockNumber()).isEqualTo(100L);
