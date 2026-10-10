@@ -1,8 +1,6 @@
 package com.nb.tron.scanner.biz;
 
 import com.nb.chain.client.enums.AddressPurpose;
-import com.nb.tron.scanner.config.TronScannerProperties;
-import com.nb.tron.scanner.constant.TronConstants;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
 import com.nb.tron.scanner.model.TronCurrencyConfig;
@@ -31,12 +29,11 @@ public class DepositDiscoveryService {
     private final TronBlockParser blockParser;
     private final TronAddressIndex addressIndex;
     private final TronCurrencyIndex currencyIndex;
-    private final TronScannerProperties scannerProperties;
 
     /**
      * 1. 固定本轮币种快照，交给SDK解析这些资产的完整区块转账。<br>
      * 2. 只保留收款地址属于平台充值地址的转账。<br>
-     * 3. 补充运行网络和业务币种，返回待发送的充值事实；本类不解析协议JSON。
+     * 3. 补充业务币种，返回待发送的充值事实；链编码由消息发布器统一写入，本类不解析协议JSON。
      */
     public List<TronDepositEvent> discover(TronBlockData block) {
         Map<TronAsset, TronCurrencyConfig> currencies = currencyIndex.snapshot();
@@ -48,8 +45,7 @@ public class DepositDiscoveryService {
     }
 
     private TronDepositEvent toDeposit(TronBlockData block, TronTransferEvent event, TronCurrencyConfig currency) {
-        return new TronDepositEvent(TronConstants.CHAIN_CODE, scannerProperties.getChainNetwork(),
-            currency.currency(), currency.contractAddress(), event.txId(), event.eventIndex(),
+        return new TronDepositEvent(currency.currency(), currency.contractAddress(), event.txId(), event.eventIndex(),
             block.blockHeight(), block.blockId(), block.blockTimestamp(), event.transfer().fromAddress(),
             event.transfer().toAddress(), event.transfer().rawAmount());
     }

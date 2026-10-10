@@ -418,7 +418,7 @@ class HeadScanPersistenceTest {
     }
 
     private TronDepositEvent deposit(String txId, String hash) {
-        return new TronDepositEvent("TRON", "MAINNET", "USDT", "contract", txId,
+        return new TronDepositEvent("USDT", "contract", txId,
             0, 101L, hash, Instant.EPOCH, "sender", "receiver", BigInteger.ONE);
     }
 

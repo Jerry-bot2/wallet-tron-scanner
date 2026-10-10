@@ -354,8 +354,6 @@ class HeadBlockScanServiceTest {
 
     private TronDepositEvent deposit(long blockHeight) {
         return new TronDepositEvent(
-            "TRON",
-            "MAINNET",
             "USDT",
             "TUsdtContract",
             "tx-1",

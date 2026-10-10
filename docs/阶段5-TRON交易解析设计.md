@@ -26,8 +26,6 @@ TronNodeManager 读取完整区块
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `chainCode` | `String` | 固定为 `TRON` |
-| `chainNetwork` | `String` | 当前运行网络，例如 `MAINNET`、`NILE` |
 | `currency` | `String` | 币种编码，例如 `TRX`、`USDT` |
 | `contractAddress` | `String` | TRC20 合约地址；原生 TRX 使用空字符串 |
 | `txId` | `String` | 链上交易 ID |
@@ -46,7 +44,7 @@ Scanner 不生成展示金额。`wallet-chain-server` 根据币种配置中的 `
 充值事实的稳定唯一键为：
 
 ```text
-chainCode + chainNetwork + txId + eventIndex
+chainCode + txId + eventIndex
 ```
 
 `eventIndex` 规则：

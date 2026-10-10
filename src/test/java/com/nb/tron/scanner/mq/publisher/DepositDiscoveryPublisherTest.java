@@ -101,7 +101,7 @@ class DepositDiscoveryPublisherTest {
             "a".repeat(64), "b".repeat(64), Instant.parse("2026-10-07T12:00:00.123456789Z"), List.of(), Map.of());
         // 使用较长的正常字段范围：32 位币种编码、64 位交易 ID、uint256 最大金额。
         List<TronDepositEvent> deposits = IntStream.range(0, 300).mapToObj(index -> new TronDepositEvent(
-            "TRON", "MAINNET", "X".repeat(32), "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+            "X".repeat(32), "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
             "%064x".formatted(index), Integer.MAX_VALUE, blockData.blockHeight(), blockData.blockId(),
             blockData.blockTimestamp(), "T" + "a".repeat(33), "T" + "b".repeat(33),
             BigInteger.TWO.pow(256).subtract(BigInteger.ONE))).toList();
@@ -159,7 +159,7 @@ class DepositDiscoveryPublisherTest {
             .thenReturn(CompletableFuture.completedFuture(new KafkaPublishResult(
                 ChainKafkaTopics.DEPOSIT_DISCOVERED_TOPIC, 0, 10L, 100L)));
         TronDepositEvent nativeDeposit = new TronDepositEvent(
-            "TRON", "MAINNET", "TRX", "", "tx-trx", -1, 100L, "block-100",
+            "TRX", "", "tx-trx", -1, 100L, "block-100",
             Instant.parse("2026-10-03T12:00:00Z"), "TSender", "TReceiver", BigInteger.valueOf(1_000_000L));
 
         publisher.publishAndWait(blockData(), List.of(nativeDeposit));
@@ -241,8 +241,6 @@ class DepositDiscoveryPublisherTest {
 
     private TronDepositEvent deposit(int index) {
         return new TronDepositEvent(
-            "TRON",
-            "MAINNET",
             "USDT",
             "TUsdtContract",
             "tx-" + index,

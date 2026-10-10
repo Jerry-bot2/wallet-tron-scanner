@@ -149,7 +149,7 @@ class HeadBlockScanAcceptanceTest {
         currencyIndex.replaceAll(List.of(
             new TronCurrencyConfig("TRX", TronTokenStandard.NATIVE, "", 6),
             new TronCurrencyConfig("USDT", TronTokenStandard.TRC20, "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t", 6)));
-        parser = new DepositDiscoveryService(new com.nb.tron.sdk.parser.TronBlockParser(objectMapper), addressIndex, currencyIndex, properties);
+        parser = new DepositDiscoveryService(new com.nb.tron.sdk.parser.TronBlockParser(objectMapper), addressIndex, currencyIndex);
         KafkaPublisher kafka = mock(KafkaPublisher.class);
         when(kafka.publish(anyString(), anyString(), any())).thenAnswer(invocation -> {
             ObservedBlockEvent event = invocation.getArgument(2);

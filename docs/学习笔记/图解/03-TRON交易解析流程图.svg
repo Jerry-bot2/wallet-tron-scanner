@@ -73,7 +73,7 @@
   <rect x="250" y="965" width="940" height="120" rx="17" class="green"/>
   <text x="280" y="1005" class="heading">List&lt;TronDepositEvent&gt; · 完整充值事实列表</text>
   <text x="280" y="1042" class="body">链与网络 · 币种与合约 · txId · eventIndex · 区块信息 · from · to · rawAmount</text>
-  <text x="280" y="1070" class="small">稳定幂等键：chainCode + chainNetwork + txId + eventIndex</text>
+  <text x="280" y="1070" class="small">稳定幂等键：chainCode + txId + eventIndex</text>
   <path d="M355 900V930H600V965" class="flow"/>
   <path d="M1085 900V930H840V965" class="flow"/>
 

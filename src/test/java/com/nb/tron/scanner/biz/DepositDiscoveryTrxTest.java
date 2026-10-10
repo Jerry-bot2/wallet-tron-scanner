@@ -3,7 +3,6 @@ package com.nb.tron.scanner.biz;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nb.chain.client.enums.AddressPurpose;
 import com.nb.core.exception.BizException;
-import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
@@ -56,7 +55,7 @@ class DepositDiscoveryTrxTest {
             "",
             6)));
         discoveryService = new DepositDiscoveryService(new com.nb.tron.sdk.parser.TronBlockParser(new ObjectMapper()),
-            addressIndex, currencyIndex, new TronScannerProperties());
+            addressIndex, currencyIndex);
     }
 
     @Test
@@ -67,8 +66,6 @@ class DepositDiscoveryTrxTest {
         List<TronDepositEvent> events = discoveryService.discover(block(transaction));
 
         assertThat(events).singleElement().satisfies(event -> {
-            assertThat(event.chainCode()).isEqualTo("TRON");
-            assertThat(event.chainNetwork()).isEqualTo("MAINNET");
             assertThat(event.currency()).isEqualTo("TRX");
             assertThat(event.contractAddress()).isEmpty();
             assertThat(event.txId()).isEqualTo("tx-1");

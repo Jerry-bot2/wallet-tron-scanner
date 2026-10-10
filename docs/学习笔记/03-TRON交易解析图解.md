@@ -63,7 +63,7 @@
 解析结果只表达“Scanner 在某个区块发现了一笔链上充值”，不代表交易已经固化到账。
 
 ```text
-chainCode + chainNetwork + txId + eventIndex
+chainCode + txId + eventIndex
 ```
 
 这是充值事实的稳定幂等键。TRX 使用负数事件序号，TRC20 使用非负日志序号，两者不会冲突。

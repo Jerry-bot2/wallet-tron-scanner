@@ -83,7 +83,7 @@ class TronTransactionParsingAcceptanceTest {
         when(addressIndex.findPurpose(addressCodec.fromHex(DEPOSIT_ADDRESS_HEX)))
             .thenReturn(AddressPurpose.DEPOSIT);
         TronCurrencyIndex currencyIndex = supportedCurrencies();
-        blockParser = new DepositDiscoveryService(new com.nb.tron.sdk.parser.TronBlockParser(objectMapper), addressIndex, currencyIndex, scannerProperties);
+        blockParser = new DepositDiscoveryService(new com.nb.tron.sdk.parser.TronBlockParser(objectMapper), addressIndex, currencyIndex);
     }
 
     @AfterEach

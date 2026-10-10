@@ -8,8 +8,6 @@ import java.time.Instant;
  *
  * <p>该模型只保存链上原始数据，不换算展示金额，也不表示充值已经固化到账</p>
  *
- * @param chainCode       链编码，固定为 TRON
- * @param chainNetwork    当前网络，例如 MAINNET、NILE
  * @param currency        币种编码，例如 TRX、USDT
  * @param contractAddress 代币合约地址；原生 TRX 为空字符串
  * @param txId            链上交易 ID
@@ -23,9 +21,7 @@ import java.time.Instant;
  *                        Author: bin jack
  *                        Date: 03.10.26
  */
-public record TronDepositEvent(String chainCode,
-                               String chainNetwork,
-                               String currency,
+public record TronDepositEvent(String currency,
                                String contractAddress,
                                String txId,
                                int eventIndex,

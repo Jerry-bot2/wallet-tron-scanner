@@ -228,7 +228,7 @@ GET /chain/scanner/addresses?chainCode=TRON&afterId=0
 POST /chain/scanner/addresses/ack
 ```
 
-请求包含 `chainCode` 和 `appliedMaxAddressId`。链服务从运行配置取得当前网络，只更新该网络中满足以下条件的地址：
+请求包含 `chainCode` 和 `appliedMaxAddressId`。链服务只更新该链中满足以下条件的地址：
 
 ```text
 id <= appliedMaxAddressId
@@ -532,7 +532,6 @@ scanner 至少配置一个 FullNode，生产建议配置主备节点，用于 He
 nb:
   tron:
     scanner:
-      chain-code: TRON
       chain-network: ${TRON_NETWORK:MAINNET}
       chain-service-url: ${CHAIN_SERVICE_URL:http://127.0.0.1:8080}
       start-block-height: ${TRON_SCAN_START_BLOCK_HEIGHT}
