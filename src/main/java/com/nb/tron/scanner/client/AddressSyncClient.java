@@ -6,7 +6,7 @@ import com.nb.chain.client.resp.ScannerAddressPageResp;
 import com.nb.chain.client.resp.ScannerAddressResp;
 import com.nb.core.exception.BizAssert;
 import com.nb.core.response.Result;
-import com.nb.tron.scanner.config.TronScannerProperties;
+import com.nb.tron.scanner.constant.TronConstants;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -27,8 +27,6 @@ public class AddressSyncClient {
 
     private final ChainScannerClient chainScannerClient;
 
-    private final TronScannerProperties scannerProperties;
-
     /**
      * 查询指定地址ID之后的一页监控地址。
      *
@@ -36,7 +34,7 @@ public class AddressSyncClient {
      * @return 校验通过的地址分页
      */
     public ScannerAddressPageResp pullNextPage(long afterAddressId) {
-        Result<ScannerAddressPageResp> result = chainScannerClient.listAddresses(scannerProperties.getChainCode(), afterAddressId);
+        Result<ScannerAddressPageResp> result = chainScannerClient.listAddresses(TronConstants.CHAIN_CODE, afterAddressId);
         BizAssert.isTrue(result != null && result.successful(), ScannerBizErrCode.ADDRESS_SYNC_REMOTE_CALL_FAILED);
 
         ScannerAddressPageResp addressPage = result.getData();
@@ -52,7 +50,7 @@ public class AddressSyncClient {
      */
     public void acknowledge(long appliedMaxAddressId) {
         ScannerAddressAckReq request = new ScannerAddressAckReq()
-            .setChainCode(scannerProperties.getChainCode())
+            .setChainCode(TronConstants.CHAIN_CODE)
             .setAppliedMaxAddressId(appliedMaxAddressId);
         Result<Void> result = chainScannerClient.ackAddressWatermark(request);
         BizAssert.isTrue(result != null && result.successful(), ScannerBizErrCode.ADDRESS_SYNC_ACK_FAILED);
@@ -64,7 +62,7 @@ public class AddressSyncClient {
     private void validateScope(ScannerAddressPageResp addressPage) {
         BizAssert.notNull(addressPage, ScannerBizErrCode.ADDRESS_SYNC_PAGE_INVALID);
         BizAssert.isTrue(
-            Objects.equals(scannerProperties.getChainCode(), addressPage.getChainCode()),
+            Objects.equals(TronConstants.CHAIN_CODE, addressPage.getChainCode()),
             ScannerBizErrCode.ADDRESS_SYNC_PAGE_INVALID);
     }
 

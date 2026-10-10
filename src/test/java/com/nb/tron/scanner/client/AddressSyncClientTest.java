@@ -7,7 +7,6 @@ import com.nb.chain.client.resp.ScannerAddressPageResp;
 import com.nb.chain.client.resp.ScannerAddressResp;
 import com.nb.core.exception.BizException;
 import com.nb.core.response.Result;
-import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.constant.TronConstants;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,9 +34,7 @@ class AddressSyncClientTest {
     @BeforeEach
     void setUp() {
         chainScannerClient = mock(ChainScannerClient.class);
-        addressSyncClient = new AddressSyncClient(
-            chainScannerClient,
-            new TronScannerProperties());
+        addressSyncClient = new AddressSyncClient(chainScannerClient);
     }
 
     @Test

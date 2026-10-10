@@ -6,6 +6,7 @@ import com.nb.chain.client.event.ObservedBlockEvent;
 import com.nb.core.exception.BizException;
 import com.nb.kafka.core.KafkaPublisher;
 import com.nb.tron.scanner.config.TronScannerProperties;
+import com.nb.tron.scanner.constant.TronConstants;
 import com.nb.tron.sdk.enums.TronTokenStandard;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.sdk.model.TronBlockData;
@@ -91,7 +92,7 @@ public class DepositDiscoveryPublisher {
 
     private ObservedBlockEvent toBlockEvent(TronBlockData blockData, List<TronDepositEvent> deposits) {
         return new ObservedBlockEvent()
-            .setChainCode(scannerProperties.getChainCode())
+            .setChainCode(TronConstants.CHAIN_CODE)
             .setBlockNumber(blockData.blockHeight())
             .setBlockHash(blockData.blockId())
             .setParentBlockHash(blockData.parentBlockId())

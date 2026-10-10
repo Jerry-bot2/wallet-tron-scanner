@@ -2,6 +2,7 @@ package com.nb.tron.scanner.biz;
 
 import com.nb.chain.client.enums.AddressPurpose;
 import com.nb.tron.scanner.config.TronScannerProperties;
+import com.nb.tron.scanner.constant.TronConstants;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
 import com.nb.tron.scanner.model.TronCurrencyConfig;
@@ -47,7 +48,7 @@ public class DepositDiscoveryService {
     }
 
     private TronDepositEvent toDeposit(TronBlockData block, TronTransferEvent event, TronCurrencyConfig currency) {
-        return new TronDepositEvent(scannerProperties.getChainCode(), scannerProperties.getChainNetwork(),
+        return new TronDepositEvent(TronConstants.CHAIN_CODE, scannerProperties.getChainNetwork(),
             currency.currency(), currency.contractAddress(), event.txId(), event.eventIndex(),
             block.blockHeight(), block.blockId(), block.blockTimestamp(), event.transfer().fromAddress(),
             event.transfer().toAddress(), event.transfer().rawAmount());

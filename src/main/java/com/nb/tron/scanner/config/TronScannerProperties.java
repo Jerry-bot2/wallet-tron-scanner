@@ -1,7 +1,6 @@
 package com.nb.tron.scanner.config;
 
 import com.nb.core.exception.BizAssert;
-import com.nb.tron.scanner.constant.TronConstants;
 import com.nb.tron.sdk.enums.TronNodeRole;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import jakarta.annotation.PostConstruct;
@@ -24,11 +23,6 @@ import java.util.List;
 @Component
 @ConfigurationProperties(prefix = "nb.tron.scanner")
 public class TronScannerProperties {
-
-    /**
-     * 当前扫描器处理的链编码
-     */
-    private String chainCode = TronConstants.CHAIN_CODE;
 
     /**
      * 当前扫描器连接的 TRON 网络，例如 MAINNET、NILE
@@ -77,7 +71,6 @@ public class TronScannerProperties {
     }
 
     private void validateRuntime() {
-        BizAssert.isTrue(TronConstants.CHAIN_CODE.equals(chainCode), ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.hasText(chainNetwork, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.isTrue(startBlockHeight != null && startBlockHeight >= 0, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.isTrue(maxBlocksPerRun > 0, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
