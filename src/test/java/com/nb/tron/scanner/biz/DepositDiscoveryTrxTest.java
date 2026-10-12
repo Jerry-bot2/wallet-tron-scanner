@@ -97,6 +97,30 @@ class DepositDiscoveryTrxTest {
             .isEqualTo(ScannerBizErrCode.TRON_SDK_DATA_INVALID);
     }
 
+    @Test
+    void shouldIgnoreResourceTransactionToDepositAddress() {
+        when(addressIndex.findPurpose(TO_BASE58)).thenReturn(AddressPurpose.DEPOSIT);
+        String rawJson = """
+            {
+              "txID":"tx-resource-1",
+              "raw_data":{"contract":[{
+                "type":"DelegateResourceContract",
+                "parameter":{"value":{
+                  "owner_address":"%s",
+                  "receiver_address":"%s",
+                  "resource":"ENERGY",
+                  "balance":1000000
+                }}
+              }]},
+              "ret":[{"contractRet":"SUCCESS"}]
+            }
+            """.formatted(FROM_HEX, TO_HEX);
+        TronTransaction resourceTransaction = new TronTransaction("tx-resource-1", rawJson);
+
+        // 委托资源不属于TRX或TRC20转账，即使接收方是充值地址也不能生成充值事件。
+        assertThat(discoveryService.discover(block(resourceTransaction))).isEmpty();
+    }
+
     private TronTransaction transaction(String result, long amount) {
         String rawJson = """
             {
