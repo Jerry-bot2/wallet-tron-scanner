@@ -92,7 +92,7 @@ class HeadBlockScanServiceTest {
         TronBlockData blockData = blockData(100L);
         List<TronDepositEvent> deposits = List.of(deposit(100L));
         when(progressService.loadCheckpoint()).thenReturn(checkpoint);
-        when(nodeManager.getHeadHeight()).thenReturn(nodeHeight(100L));
+        when(nodeManager.getSolidHeight()).thenReturn(nodeHeight(100L));
         when(nodeManager.getBlockDataByHeight(100L)).thenReturn(blockData);
         when(blockParser.discover(blockData)).thenReturn(deposits);
         when(progressService.advance(checkpoint(99L, "block-99"), blockData(100L)))
@@ -107,9 +107,9 @@ class HeadBlockScanServiceTest {
         processingOrder.verify(progressService).advance(checkpoint(99L, "block-99"), blockData(100L));
         assertThat(output).contains("completed=true");
         assertThat(output).contains("elapsedMillis=", "averageBlockMillis=", "nodeReadMillis=", "kafkaAckMillis=", "progressCommitMillis=");
-        assertThat(output.getOut().lines().filter(line -> line.contains("TRON Head扫描本轮结束")).count()).isEqualTo(1L);
+        assertThat(output.getOut().lines().filter(line -> line.contains("TRON固化扫描本轮结束")).count()).isEqualTo(1L);
         verify(progressService, times(1)).loadCheckpoint();
-        verify(nodeManager, times(1)).getHeadHeight();
+        verify(nodeManager, times(1)).getSolidHeight();
         verify(nodeManager, times(1)).getBlockDataByHeight(100L);
     }
 
@@ -118,7 +118,7 @@ class HeadBlockScanServiceTest {
         TronScanCheckpoint checkpoint = checkpoint(99L, "block-99");
         TronBlockData blockData = blockData(100L);
         when(progressService.loadCheckpoint()).thenReturn(checkpoint);
-        when(nodeManager.getHeadHeight()).thenReturn(nodeHeight(100L));
+        when(nodeManager.getSolidHeight()).thenReturn(nodeHeight(100L));
         when(nodeManager.getBlockDataByHeight(100L)).thenReturn(blockData);
         when(blockParser.discover(blockData)).thenReturn(List.of());
         when(progressService.advance(checkpoint(99L, "block-99"), blockData(100L)))
@@ -137,7 +137,7 @@ class HeadBlockScanServiceTest {
         TronBlockData blockData = blockData(100L);
         List<TronDepositEvent> deposits = List.of(deposit(100L));
         when(progressService.loadCheckpoint()).thenReturn(checkpoint);
-        when(nodeManager.getHeadHeight()).thenReturn(nodeHeight(100L));
+        when(nodeManager.getSolidHeight()).thenReturn(nodeHeight(100L));
         when(nodeManager.getBlockDataByHeight(100L)).thenReturn(blockData);
         when(blockParser.discover(blockData)).thenReturn(deposits);
         doThrow(failure).doNothing().when(depositPublisher).publishAndWait(blockData, deposits);
@@ -158,7 +158,7 @@ class HeadBlockScanServiceTest {
         BizException exception = BizException.of(ScannerBizErrCode.TRON_SDK_CALL_FAILED);
         when(progressService.loadCheckpoint())
             .thenReturn(checkpoint(99L, "block-99"));
-        when(nodeManager.getHeadHeight()).thenReturn(nodeHeight(100L));
+        when(nodeManager.getSolidHeight()).thenReturn(nodeHeight(100L));
         when(nodeManager.getBlockDataByHeight(100L))
             .thenThrow(exception)
             .thenReturn(blockData(100L));
@@ -181,7 +181,7 @@ class HeadBlockScanServiceTest {
         TronBlockData blockData = blockData(100L);
         when(progressService.loadCheckpoint())
             .thenReturn(checkpoint(99L, "block-99"));
-        when(nodeManager.getHeadHeight()).thenReturn(nodeHeight(100L));
+        when(nodeManager.getSolidHeight()).thenReturn(nodeHeight(100L));
         when(nodeManager.getBlockDataByHeight(100L)).thenReturn(blockData);
         when(blockParser.discover(blockData))
             .thenThrow(exception)
@@ -204,7 +204,7 @@ class HeadBlockScanServiceTest {
         TronBlockData blockData = blockData(100L);
         List<TronDepositEvent> deposits = List.of(deposit(100L));
         when(progressService.loadCheckpoint()).thenReturn(checkpoint);
-        when(nodeManager.getHeadHeight()).thenReturn(nodeHeight(100L));
+        when(nodeManager.getSolidHeight()).thenReturn(nodeHeight(100L));
         when(nodeManager.getBlockDataByHeight(100L)).thenReturn(blockData);
         when(blockParser.discover(blockData)).thenReturn(deposits);
         when(progressService.advance(checkpoint(99L, "block-99"), blockData(100L)))
@@ -227,7 +227,7 @@ class HeadBlockScanServiceTest {
         List<TronDepositEvent> deposits = List.of(deposit(101L));
         when(progressService.loadCheckpoint())
             .thenReturn(checkpoint(99L, "block-99"), checkpoint(100L, "block-100"));
-        when(nodeManager.getHeadHeight()).thenReturn(nodeHeight(102L), nodeHeight(101L));
+        when(nodeManager.getSolidHeight()).thenReturn(nodeHeight(102L), nodeHeight(101L));
         when(nodeManager.getBlockDataByHeight(100L)).thenReturn(block100);
         when(nodeManager.getBlockDataByHeight(101L)).thenReturn(block101);
         when(blockParser.discover(block100)).thenReturn(List.of());
@@ -254,7 +254,7 @@ class HeadBlockScanServiceTest {
         scannerProperties.setMaxBlocksPerRun(2);
         when(progressService.loadCheckpoint())
             .thenReturn(checkpoint(99L, "block-99"));
-        when(nodeManager.getHeadHeight()).thenReturn(nodeHeight(102L));
+        when(nodeManager.getSolidHeight()).thenReturn(nodeHeight(102L));
         when(nodeManager.getBlockDataByHeight(100L)).thenReturn(blockData(100L));
         when(nodeManager.getBlockDataByHeight(101L)).thenReturn(blockData(101L));
         when(blockParser.discover(any(TronBlockData.class))).thenReturn(List.of());
@@ -270,6 +270,20 @@ class HeadBlockScanServiceTest {
     }
 
     @Test
+    void shouldNeverScanBeyondSolidifiedHeight() {
+        when(progressService.loadCheckpoint()).thenReturn(checkpoint(99L, "block-99"));
+        when(nodeManager.getSolidHeight()).thenReturn(nodeHeight(100L));
+        when(nodeManager.getBlockDataByHeight(100L)).thenReturn(blockData(100L));
+        when(blockParser.discover(any(TronBlockData.class))).thenReturn(List.of());
+        when(progressService.advance(any(), any())).thenReturn(checkpoint(100L, "block-100"));
+
+        assertThat(scanService.scanBlocks()).isEqualTo(1);
+
+        verify(nodeManager, never()).getHeadHeight();
+        verify(nodeManager, never()).getBlockDataByHeight(101L);
+    }
+
+    @Test
     void shouldCheckContinuityEvenWhenThereIsNoNewBlock() {
         TronScanCheckpoint checkpoint = checkpoint(100L, "old-block-100");
         when(progressService.loadCheckpoint()).thenReturn(checkpoint);
@@ -278,7 +292,7 @@ class HeadBlockScanServiceTest {
         assertThat(scanService.scanBlocks()).isZero();
         verify(continuityService).checkCheckpoint(checkpoint);
         verify(continuityService).handleFork(checkpoint);
-        verify(nodeManager, never()).getHeadHeight();
+        verify(nodeManager, never()).getSolidHeight();
         verify(nodeManager, never()).getBlockDataByHeight(anyLong());
         verify(depositPublisher, never()).publishAndWait(any(), anyList());
     }
@@ -287,20 +301,20 @@ class HeadBlockScanServiceTest {
     void shouldCheckCheckpointBeforeReadingNewBlocks() {
         TronScanCheckpoint checkpoint = checkpoint(100L, "block-100");
         when(progressService.loadCheckpoint()).thenReturn(checkpoint);
-        when(nodeManager.getHeadHeight()).thenReturn(nodeHeight(100L));
+        when(nodeManager.getSolidHeight()).thenReturn(nodeHeight(100L));
 
         assertThat(scanService.scanBlocks()).isZero();
         InOrder order = inOrder(continuityService, progressService, nodeManager);
         order.verify(progressService).loadCheckpoint();
         order.verify(continuityService).checkCheckpoint(checkpoint);
-        order.verify(nodeManager).getHeadHeight();
+        order.verify(nodeManager).getSolidHeight();
         verify(continuityService, never()).handleFork(any());
     }
 
     @Test
     void shouldStopRoundWhenNextBlockDoesNotConnect() {
         when(progressService.loadCheckpoint()).thenReturn(checkpoint(99L, "block-99"));
-        when(nodeManager.getHeadHeight()).thenReturn(nodeHeight(101L));
+        when(nodeManager.getSolidHeight()).thenReturn(nodeHeight(101L));
         when(nodeManager.getBlockDataByHeight(100L)).thenReturn(blockData(100L));
         when(nodeManager.getBlockDataByHeight(101L)).thenReturn(blockData(101L));
         when(blockParser.discover(blockData(100L))).thenReturn(List.of());
@@ -323,7 +337,7 @@ class HeadBlockScanServiceTest {
         doThrow(new IllegalStateException("rewind failed")).when(continuityService).handleFork(checkpoint);
 
         assertThatThrownBy(scanService::scanBlocks).isInstanceOf(IllegalStateException.class);
-        verify(nodeManager, never()).getHeadHeight();
+        verify(nodeManager, never()).getSolidHeight();
         verify(progressService, never()).advance(any(), any());
         verify(depositPublisher, never()).publishAndWait(any(), anyList());
     }
@@ -335,7 +349,7 @@ class HeadBlockScanServiceTest {
 
     private TronNodeHeight nodeHeight(long blockHeight) {
         return new TronNodeHeight(
-            "full-primary",
+            "solidity-primary",
             blockHeight,
             "block-" + blockHeight,
             Instant.parse("2026-10-03T12:00:00Z"));

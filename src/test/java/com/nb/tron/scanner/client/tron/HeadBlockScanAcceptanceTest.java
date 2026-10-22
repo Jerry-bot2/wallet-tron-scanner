@@ -84,6 +84,7 @@ class HeadBlockScanAcceptanceTest {
     private HeadScanTestDatabase database;
     private TronScannerProperties properties;
     private TronNodeEndpointProperties endpoint;
+    private TronNodeEndpointProperties solidityEndpoint;
     private TronNodeClient nodeClient;
     private TronNodePool nodePool;
     private TronAddressIndex addressIndex;
@@ -121,6 +122,12 @@ class HeadBlockScanAcceptanceTest {
             SampleBlock block = chain.get(height);
             respond(exchange, block == null ? objectMapper.createObjectNode() : block.block());
         });
+        server.createContext("/walletsolidity/getnowblock", exchange ->
+            respond(exchange, blockHeader(chain.lastEntry().getValue())));
+        server.createContext("/walletsolidity/getblockbynum", exchange -> {
+            SampleBlock block = chain.get(requestHeight(exchange));
+            respond(exchange, block == null ? objectMapper.createObjectNode() : block.block());
+        });
         server.createContext("/wallet/gettransactioninfobyblocknum", exchange -> {
             SampleBlock block = chain.get(requestHeight(exchange));
             JsonNode receipts = block == null ? objectMapper.createArrayNode() : block.receipts();
@@ -137,7 +144,12 @@ class HeadBlockScanAcceptanceTest {
         endpoint.setRole(TronNodeRole.FULL_NODE);
         endpoint.setPriority(1);
         endpoint.setBaseUrl(URI.create("http://127.0.0.1:" + server.getAddress().getPort()));
-        properties.getNode().setNodes(List.of(endpoint));
+        solidityEndpoint = new TronNodeEndpointProperties();
+        solidityEndpoint.setCode("sample-solidity-node");
+        solidityEndpoint.setRole(TronNodeRole.SOLIDITY_NODE);
+        solidityEndpoint.setPriority(2);
+        solidityEndpoint.setBaseUrl(URI.create("http://127.0.0.1:" + server.getAddress().getPort()));
+        properties.getNode().setNodes(List.of(endpoint, solidityEndpoint));
         JsonCodec jsonCodec = new JsonCodec(objectMapper);
         TronAddressCodec addressCodec = new TronAddressCodec();
         nodeClient = new TronNodeClient(new TronHttpTransport(HttpClient.newHttpClient(), jsonCodec, properties.getNode().getReadTimeout(), properties.getNode().getMaxResponseSize().toBytes()));
@@ -190,14 +202,14 @@ class HeadBlockScanAcceptanceTest {
             .containsExactly("TRX", "USDT");
         assertThat(sentEvents.get(1).getDeposits().get(1).getRawAmount()).isEqualTo(BigInteger.valueOf(1_000_000));
         assertCheckpoint(106, "h106");
-        assertThat(output).contains("completed=true，forkRecheck=false，startHeight=99，lastCompletedHeight=106，observedHeadHeight=106，remainingBlocks=0，scannedCount=7");
+        assertThat(output).contains("completed=true，forkRecheck=false，startHeight=99，lastCompletedHeight=106，scanBoundaryHeight=106，remainingBlocks=0，scannedCount=7");
         assertThat(output).contains("nodeReadMillis=", "kafkaAckMillis=", "progressCommitMillis=");
-        assertThat(output.getOut().lines().filter(line -> line.contains("TRON Head扫描本轮结束")).count()).isEqualTo(1L);
+        assertThat(output.getOut().lines().filter(line -> line.contains("TRON固化扫描本轮结束")).count()).isEqualTo(1L);
 
         restartScanner();
         assertThat(job.runRound()).isZero();
         assertThat(sentEvents).hasSize(2);
-        assertThat(output).contains("startHeight=106，lastCompletedHeight=106，observedHeadHeight=106，remainingBlocks=0，scannedCount=0");
+        assertThat(output).contains("startHeight=106，lastCompletedHeight=106，scanBoundaryHeight=106，remainingBlocks=0，scannedCount=0");
         assertThat(output).contains("averageBlockMillis=null");
     }
 
@@ -211,7 +223,7 @@ class HeadBlockScanAcceptanceTest {
 
         assertThat(job.runRound()).isZero();
         assertCheckpoint(commonHeight, "h" + commonHeight);
-        assertThat(output).contains("completed=true，forkRecheck=true，startHeight=106，lastCompletedHeight=106，observedHeadHeight=null，remainingBlocks=null，scannedCount=0");
+        assertThat(output).contains("completed=true，forkRecheck=true，startHeight=106，lastCompletedHeight=106，scanBoundaryHeight=null，remainingBlocks=null，scannedCount=0");
         assertThat(database.blocks().findByHeight("MAINNET", commonHeight + 1)).isNull();
         assertThat(sentEvents).hasSize(messagesBeforeRewind);
 
@@ -239,7 +251,7 @@ class HeadBlockScanAcceptanceTest {
         assertCheckpoint(99, "h99");
         assertThat(database.blocks().findByHeight("MAINNET", 100)).isNull();
         assertThat(sentEvents).hasSize(1);
-        assertThat(output).contains("completed=true，forkRecheck=true，startHeight=99，lastCompletedHeight=100，observedHeadHeight=106，remainingBlocks=null，scannedCount=1");
+        assertThat(output).contains("completed=true，forkRecheck=true，startHeight=99，lastCompletedHeight=100，scanBoundaryHeight=106，remainingBlocks=null，scannedCount=1");
 
         restartScanner();
         assertThat(job.runRound()).isEqualTo(7);
@@ -328,12 +340,12 @@ class HeadBlockScanAcceptanceTest {
 
         assertThatThrownBy(job::runRound).isInstanceOf(BizException.class);
         assertCheckpoint(100, "h100");
-        assertThat(output).contains("completed=false，forkRecheck=false，startHeight=99，lastCompletedHeight=100，observedHeadHeight=106，remainingBlocks=6，scannedCount=1");
+        assertThat(output).contains("completed=false，forkRecheck=false，startHeight=99，lastCompletedHeight=100，scanBoundaryHeight=106，remainingBlocks=6，scannedCount=1");
 
         restartScanner();
         assertThat(job.runRound()).isEqualTo(6);
         assertCheckpoint(106, "h106");
-        assertThat(output).contains("completed=true，forkRecheck=false，startHeight=100，lastCompletedHeight=106，observedHeadHeight=106，remainingBlocks=0，scannedCount=6");
+        assertThat(output).contains("completed=true，forkRecheck=false，startHeight=100，lastCompletedHeight=106，scanBoundaryHeight=106，remainingBlocks=0，scannedCount=6");
     }
 
     @Test
@@ -371,7 +383,7 @@ class HeadBlockScanAcceptanceTest {
         assertThatThrownBy(job::runRound).isInstanceOf(BizException.class)
             .extracting(e -> ((BizException) e).getErrorCode())
             .isEqualTo(ScannerBizErrCode.HEAD_SCAN_KAFKA_PUBLISH_FAILED);
-        assertThat(output).contains("completed=false，forkRecheck=false，startHeight=99，lastCompletedHeight=99，observedHeadHeight=106，remainingBlocks=7，scannedCount=0");
+        assertThat(output).contains("completed=false，forkRecheck=false，startHeight=99，lastCompletedHeight=99，scanBoundaryHeight=106，remainingBlocks=7，scannedCount=0");
         assertCheckpoint(99, "h99");
         assertThat(database.blocks().findByHeight("MAINNET", 100)).isNull();
 
@@ -380,7 +392,7 @@ class HeadBlockScanAcceptanceTest {
         assertCheckpoint(106, "h106");
         assertThat(sentEvents).hasSize(3);
         assertThat(sentEvents.get(0)).isEqualTo(sentEvents.get(1));
-        assertThat(output).contains("completed=true，forkRecheck=false，startHeight=99，lastCompletedHeight=106，observedHeadHeight=106，remainingBlocks=0，scannedCount=7");
+        assertThat(output).contains("completed=true，forkRecheck=false，startHeight=99，lastCompletedHeight=106，scanBoundaryHeight=106，remainingBlocks=0，scannedCount=7");
     }
 
     /**
@@ -400,7 +412,7 @@ class HeadBlockScanAcceptanceTest {
     private void restartScanner() {
         // 模拟整个 Scanner 进程重启：节点健康快照和故障冷却也应重新建立。
         nodePool = new TronNodePool(
-            List.of(endpoint.toSdkDefinition()),
+            List.of(endpoint.toSdkDefinition(), solidityEndpoint.toSdkDefinition()),
             new TronNodePoolOptions(
                 properties.getExpectedGenesisBlockId(),
                 properties.getNode().getFailureThreshold(),
@@ -471,6 +483,12 @@ class HeadBlockScanAcceptanceTest {
 
     private long requestHeight(HttpExchange exchange) throws IOException {
         return objectMapper.readTree(exchange.getRequestBody()).path("num").longValue();
+    }
+
+    private ObjectNode blockHeader(SampleBlock block) {
+        ObjectNode header = block.block().deepCopy();
+        header.remove("transactions");
+        return header;
     }
 
     private void respond(HttpExchange exchange, JsonNode body) throws IOException {

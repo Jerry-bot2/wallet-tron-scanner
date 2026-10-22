@@ -69,13 +69,14 @@ public class HeadBlockScanService {
 
     /**
      * 确定本轮扫描范围，再按高度逐块处理。
-     * 例如已扫 1000，节点到 1200、单次上限 100，本轮只处理 1001～1100。
+     * 例如已扫 1000，固化高度为 1200、单次上限 100，本轮只处理 1001～1100。
      * 下一块接不上就复查分叉并结束本轮；能接上才解析、发送和提交进度。
      */
     private int scanNewBlocks(TronScanCheckpoint checkpoint) {
-        // 先确定本轮终点：不超过节点高度，也不超过单次扫描上限。
-        long headHeight = nodeManager.getHeadHeight().blockHeight();
-        long scanEndHeight = Math.min(headHeight, checkpoint.getLastBlockNumber() + scannerProperties.getMaxBlocksPerRun());
+        // 先确定本轮终点：只扫描SolidityNode已经确认固化的区块，并受单次扫描上限约束。
+        long solidHeight = nodeManager.getSolidHeight().blockHeight();
+        long scanEndHeight = Math.min(solidHeight,
+            checkpoint.getLastBlockNumber() + scannerProperties.getMaxBlocksPerRun());
 
         int scannedCount = 0;
         for (long nextBlockHeight = checkpoint.getLastBlockNumber() + 1; nextBlockHeight <= scanEndHeight; nextBlockHeight++) {

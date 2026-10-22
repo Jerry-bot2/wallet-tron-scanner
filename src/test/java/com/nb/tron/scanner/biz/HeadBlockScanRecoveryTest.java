@@ -63,7 +63,7 @@ class HeadBlockScanRecoveryTest {
         when(currencies.isReady()).thenReturn(true);
         when(progress.loadCheckpoint()).thenReturn(checkpoint);
         when(finder.findCommonAncestor(checkpoint)).thenReturn(summary(1010));
-        when(manager.getHeadHeight()).thenReturn(height(1010));
+        when(manager.getSolidHeight()).thenReturn(height(1010));
         when(manager.getBlockHeaderByHeight(anyLong())).thenAnswer(i -> height(i.getArgument(0)));
         when(parser.discover(any())).thenReturn(List.of());
         when(progress.advance(any(), any())).thenAnswer(i -> {
@@ -100,12 +100,12 @@ class HeadBlockScanRecoveryTest {
         assertThat(scanner.scanBlocks()).isZero();
         verify(progress).rewind(checkpoint, summary(1008));
         verifyNoInteractions(parser, publisher);
-        verify(manager, never()).getHeadHeight();
+        verify(manager, never()).getSolidHeight();
     }
 
     @Test
     void shouldCheckParentWithoutAdditionalSearchForConnectedBlock() {
-        when(manager.getHeadHeight()).thenReturn(height(1011));
+        when(manager.getSolidHeight()).thenReturn(height(1011));
         when(manager.getBlockDataByHeight(1011)).thenReturn(block(1011, "h1010"));
         assertThat(scanner.scanBlocks()).isEqualTo(1);
         verifyNoInteractions(finder);
@@ -114,7 +114,7 @@ class HeadBlockScanRecoveryTest {
 
     @Test
     void shouldRejectWrongHeightBeforeParsing() {
-        when(manager.getHeadHeight()).thenReturn(height(1011));
+        when(manager.getSolidHeight()).thenReturn(height(1011));
         when(manager.getBlockDataByHeight(1011)).thenReturn(block(1012, "h1010"));
         assertThatThrownBy(scanner::scanBlocks).isInstanceOf(BizException.class);
         verifyNoInteractions(parser, publisher);
@@ -124,7 +124,7 @@ class HeadBlockScanRecoveryTest {
 
     @Test
     void shouldRecoverForkThatOccursDuringCurrentRound() {
-        when(manager.getHeadHeight()).thenReturn(height(1011));
+        when(manager.getSolidHeight()).thenReturn(height(1011));
         when(manager.getBlockDataByHeight(1011)).thenReturn(block(1011, "new1010"));
         when(finder.findCommonAncestor(checkpoint)).thenReturn(summary(1008));
         assertThat(scanner.scanBlocks()).isZero();
@@ -134,7 +134,7 @@ class HeadBlockScanRecoveryTest {
 
     @Test
     void shouldCooldownBadBlockNodeWhenCheckpointStillMatches() {
-        when(manager.getHeadHeight()).thenReturn(height(1011));
+        when(manager.getSolidHeight()).thenReturn(height(1011));
         when(manager.getBlockDataByHeight(1011)).thenReturn(block(1011, "wrong-parent"));
         assertThat(scanner.scanBlocks()).isZero();
         verify(manager).startRecoveryCooldown("full");
@@ -146,7 +146,8 @@ class HeadBlockScanRecoveryTest {
     void shouldUseBackupOnNextReadAfterRejectingInconsistentBlock() {
         TronNodeEndpointProperties primary = endpoint("full-primary", 1);
         TronNodeEndpointProperties backup = endpoint("full-backup", 2);
-        properties.getNode().setNodes(List.of(primary, backup));
+        TronNodeEndpointProperties solidity = endpoint("solidity-primary", TronNodeRole.SOLIDITY_NODE, 3);
+        properties.getNode().setNodes(List.of(primary, backup, solidity));
         TronNodeClient client = mock(TronNodeClient.class);
         when(client.getBlockHeaderByHeight(primary.toSdkEndpoint(), 0L))
             .thenReturn(new TronNodeHeight(primary.getCode(), 0L, "genesis", Instant.EPOCH));
@@ -156,8 +157,11 @@ class HeadBlockScanRecoveryTest {
             .thenReturn(new TronNodeHeight(primary.getCode(), 1011L, "h1011", Instant.EPOCH));
         when(client.getHeadHeight(backup.toSdkEndpoint()))
             .thenReturn(new TronNodeHeight(backup.getCode(), 1011L, "h1011", Instant.EPOCH));
+        when(client.getGenesisBlockId(solidity.toSdkEndpoint())).thenReturn("genesis");
+        when(client.getSolidHeight(solidity.toSdkEndpoint()))
+            .thenReturn(new TronNodeHeight(solidity.getCode(), 1011L, "h1011", Instant.EPOCH));
         TronNodePool nodePool = new TronNodePool(
-            List.of(primary.toSdkDefinition(), backup.toSdkDefinition()),
+            List.of(primary.toSdkDefinition(), backup.toSdkDefinition(), solidity.toSdkDefinition()),
             new TronNodePoolOptions("genesis", 3, 20, Duration.ofSeconds(60)),
             client);
         nodePool.refresh();
@@ -183,7 +187,7 @@ class HeadBlockScanRecoveryTest {
         when(finder.findCommonAncestor(checkpoint)).thenThrow(BizException.of(ScannerBizErrCode.TRON_SDK_CALL_FAILED));
         assertThatThrownBy(scanner::scanBlocks).isInstanceOf(BizException.class);
         verifyNoInteractions(parser, publisher);
-        verify(manager, never()).getHeadHeight();
+        verify(manager, never()).getSolidHeight();
         verify(progress, never()).rewind(any(), any());
     }
 
@@ -208,7 +212,7 @@ class HeadBlockScanRecoveryTest {
         doThrow(new IllegalStateException("rollback failed")).when(progress).rewind(any(), any());
         assertThatThrownBy(scanner::scanBlocks).isInstanceOf(IllegalStateException.class);
         verifyNoInteractions(parser, publisher);
-        verify(manager, never()).getHeadHeight();
+        verify(manager, never()).getSolidHeight();
     }
 
     @Test
@@ -217,7 +221,7 @@ class HeadBlockScanRecoveryTest {
             .setLastBlockNumber(999L).setLastBlockHash("h999");
         when(progress.loadCheckpoint()).thenReturn(initial);
         when(finder.findCommonAncestor(initial)).thenReturn(summary(999));
-        when(manager.getHeadHeight()).thenReturn(height(1000));
+        when(manager.getSolidHeight()).thenReturn(height(1000));
         when(manager.getBlockDataByHeight(1000)).thenReturn(block(1000, "h999"));
 
         assertThat(scanner.scanBlocks()).isEqualTo(1);
@@ -239,7 +243,7 @@ class HeadBlockScanRecoveryTest {
         TronScanCheckpoint initial = new TronScanCheckpoint().setChainNetwork("MAINNET")
             .setLastBlockNumber(-1L).setLastBlockHash("");
         when(progress.loadCheckpoint()).thenReturn(initial);
-        when(manager.getHeadHeight()).thenReturn(height(0));
+        when(manager.getSolidHeight()).thenReturn(height(0));
         when(manager.getBlockDataByHeight(0)).thenReturn(block(0, ""));
 
         assertThat(scanner.scanBlocks()).isEqualTo(1);
@@ -256,7 +260,7 @@ class HeadBlockScanRecoveryTest {
         assertThat(scanner.scanBlocks()).isZero();
         verify(finder).findCommonAncestor(checkpoint);
         verify(manager).getBlockHeaderByHeight(1010);
-        verify(manager, never()).getHeadHeight();
+        verify(manager, never()).getSolidHeight();
         verify(progress, never()).rewind(any(), any());
         verify(progress, never()).advance(any(), any());
         verifyNoInteractions(parser, publisher);
@@ -276,9 +280,13 @@ class HeadBlockScanRecoveryTest {
     }
 
     private TronNodeEndpointProperties endpoint(String code, int priority) {
+        return endpoint(code, TronNodeRole.FULL_NODE, priority);
+    }
+
+    private TronNodeEndpointProperties endpoint(String code, TronNodeRole role, int priority) {
         TronNodeEndpointProperties endpoint = new TronNodeEndpointProperties();
         endpoint.setCode(code);
-        endpoint.setRole(TronNodeRole.FULL_NODE);
+        endpoint.setRole(role);
         endpoint.setPriority(priority);
         endpoint.setBaseUrl(URI.create("http://" + code + ".example.com"));
         return endpoint;

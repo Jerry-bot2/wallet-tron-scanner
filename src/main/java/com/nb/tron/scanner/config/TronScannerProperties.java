@@ -98,7 +98,9 @@ public class TronScannerProperties {
         BizAssert.notEmpty(nodes, ScannerBizErrCode.TRON_SDK_CONFIG_INVALID);
         boolean fullNodeConfigured = nodes.stream()
             .anyMatch(endpoint -> endpoint != null && endpoint.getRole() == TronNodeRole.FULL_NODE);
-        BizAssert.isTrue(fullNodeConfigured, ScannerBizErrCode.TRON_SDK_CONFIG_INVALID);
+        boolean solidityNodeConfigured = nodes.stream()
+            .anyMatch(endpoint -> endpoint != null && endpoint.getRole() == TronNodeRole.SOLIDITY_NODE);
+        BizAssert.isTrue(fullNodeConfigured && solidityNodeConfigured, ScannerBizErrCode.TRON_SDK_CONFIG_INVALID);
     }
 
     private boolean isPositive(Duration duration) {

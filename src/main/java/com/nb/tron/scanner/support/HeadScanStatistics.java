@@ -27,7 +27,7 @@ public final class HeadScanStatistics {
 
     private Long startHeight;
     private Long lastCompletedHeight;
-    private Long observedHeadHeight;
+    private Long scanBoundaryHeight;
     private int scannedCount;
     private long nodeReadNanos;
     private long kafkaAckNanos;
@@ -62,12 +62,12 @@ public final class HeadScanStatistics {
     }
 
     /**
-     * 复用本轮已读到的节点高度，例如 1200，不为统计额外查询节点。
+     * 复用本轮已读到的固化高度，例如 1200，不为统计额外查询节点。
      */
-    public static void observeHead(long headHeight) {
+    public static void observeScanBoundary(long solidHeight) {
         HeadScanStatistics statistics = CURRENT.get();
         if (statistics != null) {
-            statistics.observedHeadHeight = headHeight;
+            statistics.scanBoundaryHeight = solidHeight;
         }
     }
 
@@ -147,8 +147,8 @@ public final class HeadScanStatistics {
     }
 
     /**
-     * 例如本轮 1000 → 1100、读到节点高度 1200：完成 100 块，尚落后 100 块。
-     * <p>落后数量使用本轮读取时的节点高度。分叉轮次可能已回退，落后数量记为 null，
+     * 例如本轮 1000 → 1100、读到固化高度 1200：完成 100 块，尚落后 100 块。
+     * <p>落后数量使用本轮读取时的固化高度。分叉轮次可能已回退，落后数量记为 null，
      * 回退位置查看分叉日志；lastCompletedHeight 仍表示本轮回退前最后成功提交的位置。</p>
      * <p>总耗时还包含初始化、解析和分叉处理；阶段耗时不要求相加等于总耗时。
      * 没完成区块时平均耗时为 null；异常继续由原调用链处理，本类不打印异常堆栈。</p>
@@ -156,11 +156,11 @@ public final class HeadScanStatistics {
     private void logSummary() {
         long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
         Long averageBlockMillis = scannedCount == 0 ? null : elapsedMillis / scannedCount;
-        Long remainingBlocks = forkRecheck || observedHeadHeight == null || lastCompletedHeight == null
-            ? null : Math.max(observedHeadHeight - lastCompletedHeight, 0L);
+        Long remainingBlocks = forkRecheck || scanBoundaryHeight == null || lastCompletedHeight == null
+            ? null : Math.max(scanBoundaryHeight - lastCompletedHeight, 0L);
 
-        log.info("TRON Head扫描本轮结束，chainNetwork={}，completed={}，forkRecheck={}，startHeight={}，lastCompletedHeight={}，observedHeadHeight={}，remainingBlocks={}，scannedCount={}，elapsedMillis={}，averageBlockMillis={}，nodeReadMillis={}，kafkaAckMillis={}，progressCommitMillis={}",
-            chainNetwork, completed, forkRecheck, startHeight, lastCompletedHeight, observedHeadHeight,
+        log.info("TRON固化扫描本轮结束，chainNetwork={}，completed={}，forkRecheck={}，startHeight={}，lastCompletedHeight={}，scanBoundaryHeight={}，remainingBlocks={}，scannedCount={}，elapsedMillis={}，averageBlockMillis={}，nodeReadMillis={}，kafkaAckMillis={}，progressCommitMillis={}",
+            chainNetwork, completed, forkRecheck, startHeight, lastCompletedHeight, scanBoundaryHeight,
             remainingBlocks, scannedCount, elapsedMillis, averageBlockMillis,
             TimeUnit.NANOSECONDS.toMillis(nodeReadNanos),
             TimeUnit.NANOSECONDS.toMillis(kafkaAckNanos),

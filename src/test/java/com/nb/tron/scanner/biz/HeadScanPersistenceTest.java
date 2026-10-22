@@ -347,7 +347,7 @@ class HeadScanPersistenceTest {
             long height = invocation.getArgument(0);
             return height(height, "h" + height);
         });
-        when(nodeManager.getHeadHeight()).thenReturn(height(102, "h102"));
+        when(nodeManager.getSolidHeight()).thenReturn(height(102, "h102"));
         when(parser.discover(any())).thenReturn(List.of());
         for (long h = 100; h <= 102; h++) {
             when(nodeManager.getBlockDataByHeight(h)).thenReturn(block(h, "h" + h));

@@ -59,12 +59,15 @@ class TronScannerPropertiesTest {
     }
 
     @Test
-    void shouldAcceptOnlyFullNodeAndDefaultHistoryWindow() {
+    void shouldRequireSolidityNode() {
         TronScannerProperties properties = validProperties();
         properties.getNode().setNodes(List.of(
             node("full", TronNodeRole.FULL_NODE, "http://127.0.0.1:8090")));
-        assertThatNoException().isThrownBy(properties::validate);
-        assertThat(properties.getBlockHistorySize()).isEqualTo(20_000);
+
+        assertThatThrownBy(properties::validate)
+            .isInstanceOf(BizException.class)
+            .extracting(exception -> ((BizException) exception).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.TRON_SDK_CONFIG_INVALID);
     }
 
     private TronScannerProperties validProperties() {

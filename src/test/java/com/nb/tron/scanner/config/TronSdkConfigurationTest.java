@@ -6,6 +6,7 @@ import com.nb.tron.scanner.index.TronCurrencyIndex;
 import com.nb.tron.sdk.TronSdkClient;
 import com.nb.tron.sdk.block.TronBlockGateway;
 import com.nb.tron.sdk.codec.TronAddressCodec;
+import com.nb.tron.sdk.enums.TronNodeRole;
 import com.nb.tron.sdk.node.TronNodePool;
 import com.nb.tron.sdk.parser.TronBlockParser;
 import org.junit.jupiter.api.Test;
@@ -50,12 +51,23 @@ class TronSdkConfigurationTest {
         TronScannerProperties properties = new TronScannerProperties();
         properties.setStartBlockHeight(1000L);
         properties.setExpectedGenesisBlockId("genesis-id");
-        TronNodeEndpointProperties endpoint = new TronNodeEndpointProperties();
-        endpoint.setCode("full-node");
-        endpoint.setRole(com.nb.tron.sdk.enums.TronNodeRole.FULL_NODE);
-        endpoint.setPriority(1);
-        endpoint.setBaseUrl(URI.create("http://127.0.0.1:8090"));
-        properties.getNode().setNodes(List.of(endpoint));
+        TronNodeEndpointProperties fullNode = endpoint(
+            "full-node", TronNodeRole.FULL_NODE, 1, "http://127.0.0.1:8090");
+        TronNodeEndpointProperties solidityNode = endpoint(
+            "solidity-node", TronNodeRole.SOLIDITY_NODE, 2, "http://127.0.0.1:8091");
+        properties.getNode().setNodes(List.of(fullNode, solidityNode));
         return properties;
+    }
+
+    private TronNodeEndpointProperties endpoint(String code,
+                                                TronNodeRole role,
+                                                int priority,
+                                                String baseUrl) {
+        TronNodeEndpointProperties endpoint = new TronNodeEndpointProperties();
+        endpoint.setCode(code);
+        endpoint.setRole(role);
+        endpoint.setPriority(priority);
+        endpoint.setBaseUrl(URI.create(baseUrl));
+        return endpoint;
     }
 }

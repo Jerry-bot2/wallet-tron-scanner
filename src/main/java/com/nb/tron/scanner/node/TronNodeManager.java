@@ -25,17 +25,17 @@ public class TronNodeManager {
 
     private final TronBlockGateway blockGateway;
 
-    /**
-     * 查询最新Head高度，并立即回写实际响应节点的高度快照。
-     */
     public TronNodeHeight getHeadHeight() {
-        TronNodeHeight height = read(blockGateway::getHeadHeight);
-        HeadScanStatistics.observeHead(height.blockHeight());
-        return height;
+        return read(blockGateway::getHeadHeight);
     }
 
+    /**
+     * 查询最新固化高度，并记录本轮扫描允许到达的上界。
+     */
     public TronNodeHeight getSolidHeight() {
-        return read(blockGateway::getSolidHeight);
+        TronNodeHeight height = read(blockGateway::getSolidHeight);
+        HeadScanStatistics.observeScanBoundary(height.blockHeight());
+        return height;
     }
 
     /**

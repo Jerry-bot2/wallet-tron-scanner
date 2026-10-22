@@ -48,7 +48,8 @@ class TronNodeStartupValidatorTest {
     void shouldIgnoreUnhealthyNode() {
         when(nodePool.states()).thenReturn(List.of(
             unhealthyState("full-wrong", TronNodeRole.FULL_NODE),
-            healthyState("full-primary", TronNodeRole.FULL_NODE)));
+            healthyState("full-primary", TronNodeRole.FULL_NODE),
+            healthyState("solidity-primary", TronNodeRole.SOLIDITY_NODE)));
 
         assertThatNoException().isThrownBy(startupValidator::validateConfiguredNodes);
     }
@@ -66,12 +67,15 @@ class TronNodeStartupValidatorTest {
     }
 
     @Test
-    void shouldAllowStartupWhenOnlySolidityNodeIsUnhealthy() {
+    void shouldFailStartupWhenNoSolidityNodeIsHealthy() {
         when(nodePool.states()).thenReturn(List.of(
             healthyState("full-primary", TronNodeRole.FULL_NODE),
             unhealthyState("solidity-primary", TronNodeRole.SOLIDITY_NODE)));
 
-        assertThatNoException().isThrownBy(startupValidator::validateConfiguredNodes);
+        assertThatThrownBy(startupValidator::validateConfiguredNodes)
+            .isInstanceOf(BizException.class)
+            .extracting(exception -> ((BizException) exception).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.TRON_SDK_CALL_FAILED);
     }
 
     private TronNodeState healthyState(String nodeCode, TronNodeRole nodeRole) {
