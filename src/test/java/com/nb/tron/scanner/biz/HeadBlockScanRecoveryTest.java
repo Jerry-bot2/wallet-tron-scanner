@@ -8,7 +8,7 @@ import com.nb.tron.scanner.entity.TronScannedBlock;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
-import com.nb.tron.scanner.mq.publisher.DepositDiscoveryPublisher;
+import com.nb.tron.scanner.mq.publisher.DepositConfirmedPublisher;
 import com.nb.tron.scanner.node.TronNodeManager;
 import com.nb.tron.sdk.block.TronBlockGateway;
 import com.nb.tron.sdk.client.TronNodeClient;
@@ -47,7 +47,7 @@ class HeadBlockScanRecoveryTest {
     private TronAddressIndex addresses;
     private TronCurrencyIndex currencies;
     private DepositDiscoveryService parser;
-    private DepositDiscoveryPublisher publisher;
+    private DepositConfirmedPublisher publisher;
     private HeadBlockScanService scanner;
 
     @BeforeEach
@@ -58,7 +58,7 @@ class HeadBlockScanRecoveryTest {
         addresses = mock(TronAddressIndex.class);
         currencies = mock(TronCurrencyIndex.class);
         parser = mock(DepositDiscoveryService.class);
-        publisher = mock(DepositDiscoveryPublisher.class);
+        publisher = mock(DepositConfirmedPublisher.class);
         when(addresses.isReady()).thenReturn(true);
         when(currencies.isReady()).thenReturn(true);
         when(progress.loadCheckpoint()).thenReturn(checkpoint);

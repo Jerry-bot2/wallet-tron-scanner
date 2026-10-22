@@ -14,7 +14,7 @@ import com.nb.tron.scanner.index.TronCurrencyIndex;
 import com.nb.tron.scanner.mapper.TronScanCheckpointMapper;
 import com.nb.tron.scanner.mapper.TronScannedBlockMapper;
 import com.nb.tron.scanner.model.TronDepositEvent;
-import com.nb.tron.scanner.mq.publisher.DepositDiscoveryPublisher;
+import com.nb.tron.scanner.mq.publisher.DepositConfirmedPublisher;
 import com.nb.tron.scanner.node.TronBlockHeaderReader;
 import com.nb.tron.scanner.node.TronNodeManager;
 import com.nb.tron.scanner.service.impl.TronScanCheckpointServiceImpl;
@@ -337,7 +337,7 @@ class HeadScanPersistenceTest {
         var addressIndex = mock(TronAddressIndex.class);
         var currencyIndex = mock(TronCurrencyIndex.class);
         var parser = mock(DepositDiscoveryService.class);
-        var publisher = mock(DepositDiscoveryPublisher.class);
+        var publisher = mock(DepositConfirmedPublisher.class);
         when(addressIndex.isReady()).thenReturn(true);
         when(currencyIndex.isReady()).thenReturn(true);
         TronBlockHeaderReader reader = mock(TronBlockHeaderReader.class);
@@ -424,7 +424,7 @@ class HeadScanPersistenceTest {
 
     private HeadBlockScanService scanner(HeadScanProgressService progress, TronAddressIndex addresses,
                                         TronCurrencyIndex currencies, DepositDiscoveryService parser,
-                                        DepositDiscoveryPublisher publisher) {
+                                        DepositConfirmedPublisher publisher) {
         HeadBlockAncestorFinder finder = new HeadBlockAncestorFinder(nodeManager, scannedBlockService);
         HeadBlockContinuityService continuity = new HeadBlockContinuityService(nodeManager, finder, progress);
         return new HeadBlockScanService(properties, addresses, currencies, nodeManager, parser, publisher, continuity, progress);

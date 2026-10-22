@@ -9,7 +9,7 @@ import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
 import com.nb.tron.scanner.model.HeadBlockCheckResult;
 import com.nb.tron.scanner.model.TronDepositEvent;
-import com.nb.tron.scanner.mq.publisher.DepositDiscoveryPublisher;
+import com.nb.tron.scanner.mq.publisher.DepositConfirmedPublisher;
 import com.nb.tron.scanner.node.TronNodeManager;
 import com.nb.tron.sdk.model.TronBlockData;
 import com.nb.tron.sdk.model.TronNodeHeight;
@@ -52,7 +52,7 @@ class HeadBlockScanServiceTest {
 
     private DepositDiscoveryService blockParser;
 
-    private DepositDiscoveryPublisher depositPublisher;
+    private DepositConfirmedPublisher depositPublisher;
 
     private HeadScanProgressService progressService;
 
@@ -68,7 +68,7 @@ class HeadBlockScanServiceTest {
         TronCurrencyIndex currencyIndex = mock(TronCurrencyIndex.class);
         nodeManager = mock(TronNodeManager.class);
         blockParser = mock(DepositDiscoveryService.class);
-        depositPublisher = mock(DepositDiscoveryPublisher.class);
+        depositPublisher = mock(DepositConfirmedPublisher.class);
         progressService = mock(HeadScanProgressService.class);
         continuityService = mock(HeadBlockContinuityService.class);
         when(continuityService.checkCheckpoint(any())).thenReturn(new HeadBlockCheckResult(false));

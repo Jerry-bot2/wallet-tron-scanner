@@ -1,17 +1,16 @@
 package com.nb.tron.scanner.mq.publisher;
 
 import com.nb.chain.client.constant.ChainKafkaTopics;
-import com.nb.chain.client.event.DepositDiscoveryEvent;
-import com.nb.chain.client.event.ObservedBlockEvent;
+import com.nb.chain.client.event.ConfirmedDeposit;
+import com.nb.chain.client.event.DepositConfirmedEvent;
 import com.nb.core.exception.BizException;
 import com.nb.kafka.core.KafkaPublisher;
 import com.nb.tron.scanner.config.TronScannerProperties;
-import com.nb.tron.scanner.constant.TronConstants;
-import com.nb.tron.sdk.enums.TronTokenStandard;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
-import com.nb.tron.sdk.model.TronBlockData;
 import com.nb.tron.scanner.model.TronDepositEvent;
 import com.nb.tron.scanner.support.HeadScanStatistics;
+import com.nb.tron.sdk.enums.TronTokenStandard;
+import com.nb.tron.sdk.model.TronBlockData;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -20,27 +19,28 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import static com.nb.tron.scanner.constant.TronConstants.CHAIN_CODE;
 import static com.nb.tron.scanner.constant.TronConstants.DEPOSIT_MESSAGE_BATCH_SIZE;
 
 /**
- * 充值发现消息发布器
+ * TRON最终确认充值消息发布器
  *
- * <p>把 Scanner 内部解析模型转换成 chain-client 公共事件，按链
- * 使用固定消息 Key 发送到 Kafka，并等待 Broker 确认。</p>
+ * <p>把solidified区块中的充值转换成公共最终事件，按链使用固定消息Key发送到Kafka，
+ * 全部批次收到Broker确认后调用方才能推进扫描检查点。</p>
  * <p>
  * Author: bin jack
- * Date: 03.10.26
+ * Date: 22.10.26
  */
 @Component
 @RequiredArgsConstructor
-public class DepositDiscoveryPublisher {
+public class DepositConfirmedPublisher {
 
     private final TronScannerProperties scannerProperties;
 
     private final KafkaPublisher kafkaPublisher;
 
     /**
-     * 按每条最多 300 笔发送本区块的全部充值，并等待 Broker 确认。
+     * 按每条最多300笔发送当前固化区块的全部充值，并等待Broker确认。
      *
      * <p>拆分原因：同一区块的充值过多时，单条消息可能超过 Kafka 的大小限制，
      * 导致每次重扫都发送失败，扫描进度一直停在这个区块。
@@ -58,7 +58,7 @@ public class DepositDiscoveryPublisher {
     }
 
     private void publishBatches(TronBlockData blockData, List<TronDepositEvent> deposits) {
-        // 1. 按原始顺序每 300 笔分一组；最后一组不足 300 笔也正常发送。
+        // 1. 按原始顺序每300笔分一组；最后一组不足300笔也正常发送。
         for (int start = 0; start < deposits.size(); start += DEPOSIT_MESSAGE_BATCH_SIZE) {
             int end = Math.min(start + DEPOSIT_MESSAGE_BATCH_SIZE, deposits.size());
             // 2. 当前组收到 ACK 才发送下一组；任一组失败就抛出异常，停止后续发送。
@@ -67,10 +67,13 @@ public class DepositDiscoveryPublisher {
     }
 
     private void sendAndWaitForAck(TronBlockData blockData, List<TronDepositEvent> deposits) {
-        // 每条消息携带相同的区块信息，deposits 只包含当前组的充值。
-        ObservedBlockEvent blockEvent = toBlockEvent(blockData, deposits);
+        // 每条消息携带相同的固化区块信息，deposits只包含当前分组的充值。
+        DepositConfirmedEvent confirmedEvent = convertConfirmedEvent(blockData, deposits);
         try {
-            kafkaPublisher.publish(ChainKafkaTopics.DEPOSIT_DISCOVERED_TOPIC, blockEvent.messageKey(), blockEvent)
+            kafkaPublisher.publish(
+                    ChainKafkaTopics.DEPOSIT_CONFIRMED_TOPIC,
+                    confirmedEvent.messageKey(),
+                    confirmedEvent)
                 .get(scannerProperties.getKafkaAckTimeout().toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException exception) {
             // 任务线程被中断时保留中断标记，结束本轮。
@@ -90,21 +93,21 @@ public class DepositDiscoveryPublisher {
             blockData.blockHeight());
     }
 
-    private ObservedBlockEvent toBlockEvent(TronBlockData blockData, List<TronDepositEvent> deposits) {
-        return new ObservedBlockEvent()
-            .setChainCode(TronConstants.CHAIN_CODE)
+    private DepositConfirmedEvent convertConfirmedEvent(TronBlockData blockData,
+                                                         List<TronDepositEvent> deposits) {
+        return new DepositConfirmedEvent()
+            .setChainCode(CHAIN_CODE)
             .setBlockNumber(blockData.blockHeight())
             .setBlockHash(blockData.blockId())
-            .setParentBlockHash(blockData.parentBlockId())
             .setBlockTimestamp(blockData.blockTimestamp())
-            .setDeposits(deposits.stream().map(this::toDepositEvent).toList());
+            .setDeposits(deposits.stream().map(this::convertConfirmedDeposit).toList());
     }
 
-    private DepositDiscoveryEvent toDepositEvent(TronDepositEvent deposit) {
-        // TRON 的标准判断留在 Scanner；链服务按消息中的资产身份匹配配置。
+    private ConfirmedDeposit convertConfirmedDeposit(TronDepositEvent deposit) {
+        // TRON的资产标准在Scanner内确定，Chain Server按完整资产身份匹配币种配置。
         TronTokenStandard tokenStandard = deposit.contractAddress().isEmpty()
             ? TronTokenStandard.NATIVE : TronTokenStandard.TRC20;
-        return new DepositDiscoveryEvent()
+        return new ConfirmedDeposit()
             .setCurrency(deposit.currency())
             .setTokenStandard(tokenStandard.getCode())
             .setContractAddress(deposit.contractAddress())

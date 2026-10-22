@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nb.chain.client.enums.AddressPurpose;
-import com.nb.chain.client.event.ObservedBlockEvent;
+import com.nb.chain.client.event.DepositConfirmedEvent;
 import com.nb.core.exception.BizException;
 import com.nb.kafka.core.KafkaPublishResult;
 import com.nb.kafka.core.KafkaPublisher;
@@ -20,7 +20,7 @@ import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
 import com.nb.tron.scanner.job.HeadBlockScanJob;
 import com.nb.tron.scanner.model.TronCurrencyConfig;
-import com.nb.tron.scanner.mq.publisher.DepositDiscoveryPublisher;
+import com.nb.tron.scanner.mq.publisher.DepositConfirmedPublisher;
 import com.nb.tron.scanner.node.TronNodeManager;
 import com.nb.tron.sdk.block.TronBlockGateway;
 import com.nb.tron.scanner.support.HeadScanTestDatabase;
@@ -78,7 +78,7 @@ class HeadBlockScanAcceptanceTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ConcurrentNavigableMap<Long, SampleBlock> chain = new ConcurrentSkipListMap<>();
-    private final List<ObservedBlockEvent> sentEvents = new ArrayList<>();
+    private final List<DepositConfirmedEvent> sentEvents = new ArrayList<>();
 
     private HttpServer server;
     private HeadScanTestDatabase database;
@@ -90,7 +90,7 @@ class HeadBlockScanAcceptanceTest {
     private TronAddressIndex addressIndex;
     private TronCurrencyIndex currencyIndex;
     private DepositDiscoveryService parser;
-    private DepositDiscoveryPublisher publisher;
+    private DepositConfirmedPublisher publisher;
     private TestScanJob job;
     private ObjectNode blockSample;
     private ArrayNode receiptSample;
@@ -164,7 +164,7 @@ class HeadBlockScanAcceptanceTest {
         parser = new DepositDiscoveryService(new com.nb.tron.sdk.parser.TronBlockParser(objectMapper), addressIndex, currencyIndex);
         KafkaPublisher kafka = mock(KafkaPublisher.class);
         when(kafka.publish(anyString(), anyString(), any())).thenAnswer(invocation -> {
-            ObservedBlockEvent event = invocation.getArgument(2);
+            DepositConfirmedEvent event = invocation.getArgument(2);
             sentEvents.add(event);
             // 发送时数据库仍停在前一块，必须等 ACK 成功后才能提交进度。
             assertThat(database.checkpoints().findByNetwork("MAINNET").getLastBlockNumber())
@@ -177,7 +177,7 @@ class HeadBlockScanAcceptanceTest {
             afterAck.run();
             return CompletableFuture.completedFuture(new KafkaPublishResult(invocation.getArgument(0), 0, 1, 0));
         });
-        publisher = new DepositDiscoveryPublisher(properties, kafka);
+        publisher = new DepositConfirmedPublisher(properties, kafka);
         database = new HeadScanTestDatabase();
         restartScanner();
     }
@@ -233,8 +233,8 @@ class HeadBlockScanAcceptanceTest {
         for (long height = commonHeight + 1; height <= 106; height++) {
             assertThat(database.blocks().findByHeight("MAINNET", height).getBlockHash()).isEqualTo("new" + height);
         }
-        // 保留同一交易 ID 的重新打包样本：重新发送时携带新 Hash，供链服务固化确认。
-        for (ObservedBlockEvent event : sentEvents.subList(messagesBeforeRewind, sentEvents.size())) {
+        // 保留同一交易 ID 的重新打包样本：重新发送时携带新 Hash，供Chain Server幂等接收。
+        for (DepositConfirmedEvent event : sentEvents.subList(messagesBeforeRewind, sentEvents.size())) {
             assertThat(event.getBlockHash()).startsWith("new");
         }
     }

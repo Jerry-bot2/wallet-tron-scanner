@@ -9,7 +9,7 @@ import com.nb.tron.scanner.index.TronCurrencyIndex;
 import com.nb.tron.scanner.model.HeadBlockCheckResult;
 import com.nb.tron.sdk.model.TronBlockData;
 import com.nb.tron.scanner.model.TronDepositEvent;
-import com.nb.tron.scanner.mq.publisher.DepositDiscoveryPublisher;
+import com.nb.tron.scanner.mq.publisher.DepositConfirmedPublisher;
 import com.nb.tron.scanner.node.TronNodeManager;
 import com.nb.tron.scanner.support.HeadScanStatistics;
 import lombok.RequiredArgsConstructor;
@@ -33,7 +33,7 @@ public class HeadBlockScanService {
     private final TronCurrencyIndex currencyIndex;
     private final TronNodeManager nodeManager;
     private final DepositDiscoveryService depositDiscoveryService;
-    private final DepositDiscoveryPublisher depositPublisher;
+    private final DepositConfirmedPublisher depositPublisher;
     private final HeadBlockContinuityService continuityService;
     private final HeadScanProgressService progressService;
 

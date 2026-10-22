@@ -19,7 +19,7 @@ public final class TronConstants {
     public static final int BLOCK_HISTORY_CLEANUP_INTERVAL = 100;
 
     /**
-     * 一条充值发现消息最多携带 300 笔充值，超出时按固定数量拆分。
+     * 一条最终确认消息最多携带300笔充值，超出时按固定数量拆分。
      */
     public static final int DEPOSIT_MESSAGE_BATCH_SIZE = 300;
 
