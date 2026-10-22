@@ -44,6 +44,7 @@ public enum ScannerBizErrCode implements IBizErrCode {
     /// ////////////////////////////////////// Head 区块扫描 /////////////////////////////////////////
     HEAD_SCAN_CHECKPOINT_SAVE_FAILED(916001, "Head 扫块进度保存失败"),
     HEAD_SCAN_KAFKA_PUBLISH_FAILED(916002, "Head 扫块充值事件投递未确认，区块高度 {0}"),
+    SOLIDIFIED_SCAN_CHAIN_INVALID(916003, "TRON固化区块链不连续，区块高度 {0}"),
 
     HEAD_SCAN_HISTORY_INVALID(916004, "区块摘要缺失或与检查点不一致"),
     HEAD_SCAN_CHAIN_CHANGED(916006, "查找共同区块期间链发生变化，本轮结束，下轮重新查找"),

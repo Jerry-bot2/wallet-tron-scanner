@@ -6,7 +6,6 @@ import com.nb.tron.scanner.entity.TronScanCheckpoint;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
-import com.nb.tron.scanner.model.HeadBlockCheckResult;
 import com.nb.tron.sdk.model.TronBlockData;
 import com.nb.tron.scanner.model.TronDepositEvent;
 import com.nb.tron.scanner.mq.publisher.DepositConfirmedPublisher;
@@ -18,8 +17,8 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 
 /**
- * 单线程扫块入口：加载进度 → 检查分叉 → 回退或顺序扫描。
- * <p>发现分叉就回退并结束本轮，下轮重扫；正常扫描必须等 Kafka ACK 后才提交进度。</p>
+ * 单线程固化扫块入口：加载进度 → 复核检查点 → 顺序扫描固化区块。
+ * <p>固化链证据不一致时立即停止并等待人工确认；正常扫描必须等 Kafka ACK 后才提交进度。</p>
  * <p>
  * Author: bin jack
  * Date: 06.10.26
@@ -38,17 +37,17 @@ public class HeadBlockScanService {
     private final HeadScanProgressService progressService;
 
     /**
-     * 扫块入口：先检查分叉；有分叉走回退流程，没有分叉走正常扫描流程。
+     * 固化扫块入口：先复核检查点，再顺序处理 Solidity Node 已经固化的区块。
      * <p>入口只包裹一次统计；业务步骤见 {@link #scanRound()}。</p>
      *
-     * @return 本轮完成的区块数；发现分叉或区块接不上时结束本轮，返回 0
+     * @return 本轮完成的区块数
      */
     public int scanBlocks() {
         return HeadScanStatistics.recordRound(scannerProperties.getChainNetwork(), this::scanRound);
     }
 
     /**
-     * 执行一轮业务流程：加载进度 → 复查末块 → 分叉回退或顺序扫描。
+     * 执行一轮业务流程：加载进度 → 复核固化检查点 → 顺序扫描固化区块。
      * 耗时与结果由 scanBlocks 统一汇总，统计不改变处理顺序。
      */
     private int scanRound() {
@@ -56,23 +55,19 @@ public class HeadBlockScanService {
         requireIndexesReady();
         TronScanCheckpoint checkpoint = progressService.loadCheckpoint();
 
-        // 2. 比较节点的 1000 Hash；不同就进入分叉复查，回退后结束本轮，下轮重扫。
-        HeadBlockCheckResult checkResult = continuityService.checkCheckpoint(checkpoint);
-        if (checkResult.fork()) {
-            continuityService.handleFork(checkpoint);
-            return 0;
-        }
+        // 2. 检查点已经属于固化链；同高度Hash不一致时记录错误并停止，禁止自动回退。
+        continuityService.verifyCheckpoint(checkpoint);
 
-        // 3. 没有分叉：从 1001 开始逐块处理，收到 Kafka ACK 后才保存扫描进度。
-        return scanNewBlocks(checkpoint);
+        // 3. 从 1001 开始逐块处理，收到 Kafka ACK 后才保存扫描进度。
+        return scanSolidifiedBlocks(checkpoint);
     }
 
     /**
      * 确定本轮扫描范围，再按高度逐块处理。
      * 例如已扫 1000，固化高度为 1200、单次上限 100，本轮只处理 1001～1100。
-     * 下一块接不上就复查分叉并结束本轮；能接上才解析、发送和提交进度。
+     * 下一块接不上就记录错误并停止；能接上才解析、发送和提交进度。
      */
-    private int scanNewBlocks(TronScanCheckpoint checkpoint) {
+    private int scanSolidifiedBlocks(TronScanCheckpoint checkpoint) {
         // 先确定本轮终点：只扫描SolidityNode已经确认固化的区块，并受单次扫描上限约束。
         long solidHeight = nodeManager.getSolidHeight().blockHeight();
         long scanEndHeight = Math.min(solidHeight,
@@ -83,11 +78,8 @@ public class HeadBlockScanService {
             // 1. 读取下一块：已扫 1000，就读取 1001。
             TronBlockData blockData = nodeManager.getBlockDataByHeight(nextBlockHeight);
 
-            // 2. 检查父 Hash：1001 必须接在 H1000 后面；接不上就复查并结束本轮。
-            if (!continuityService.isNextBlockContinuous(checkpoint, blockData)) {
-                continuityService.handleParentHashMismatch(checkpoint, blockData);
-                return 0;
-            }
+            // 2. 检查高度和父Hash：1001必须接在H1000后面；不一致时阻断本轮且不修改检查点。
+            continuityService.verifyNextBlock(checkpoint, blockData);
 
             // 3. 处理并推进：解析充值、等待 Kafka ACK、事务保存，成功后继续 1002。
             checkpoint = processBlock(checkpoint, blockData);

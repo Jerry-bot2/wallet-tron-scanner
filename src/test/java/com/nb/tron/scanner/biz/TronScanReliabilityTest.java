@@ -7,7 +7,6 @@ import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.entity.TronScanCheckpoint;
 import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
-import com.nb.tron.scanner.model.HeadBlockCheckResult;
 import com.nb.tron.scanner.model.TronDepositEvent;
 import com.nb.tron.scanner.mq.publisher.DepositConfirmedPublisher;
 import com.nb.tron.scanner.node.TronNodeManager;
@@ -68,9 +67,6 @@ class TronScanReliabilityTest {
             new TronScannerProperties(), kafkaPublisher);
 
         HeadBlockContinuityService continuityService = mock(HeadBlockContinuityService.class);
-        when(continuityService.checkCheckpoint(checkpoint)).thenReturn(new HeadBlockCheckResult(false));
-        when(continuityService.isNextBlockContinuous(checkpoint, block)).thenReturn(true);
-
         HeadScanProgressService progressService = mock(HeadScanProgressService.class);
         when(progressService.loadCheckpoint()).thenReturn(checkpoint);
         RuntimeException databaseFailure = new RuntimeException("database unavailable");

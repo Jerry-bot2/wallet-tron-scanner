@@ -4,17 +4,12 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import com.nb.core.exception.BizException;
 import com.nb.mybatis.transaction.TransactionSupport;
-import com.nb.tron.scanner.biz.DepositDiscoveryService;
 import com.nb.tron.scanner.config.TronScannerProperties;
 import com.nb.tron.scanner.entity.TronScanCheckpoint;
 import com.nb.tron.scanner.entity.TronScannedBlock;
 import com.nb.tron.scanner.exception.ScannerBizErrCode;
-import com.nb.tron.scanner.index.TronAddressIndex;
-import com.nb.tron.scanner.index.TronCurrencyIndex;
 import com.nb.tron.scanner.mapper.TronScanCheckpointMapper;
 import com.nb.tron.scanner.mapper.TronScannedBlockMapper;
-import com.nb.tron.scanner.model.TronDepositEvent;
-import com.nb.tron.scanner.mq.publisher.DepositConfirmedPublisher;
 import com.nb.tron.scanner.node.TronBlockHeaderReader;
 import com.nb.tron.scanner.node.TronNodeManager;
 import com.nb.tron.scanner.service.impl.TronScanCheckpointServiceImpl;
@@ -33,7 +28,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.math.BigInteger;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -333,55 +327,6 @@ class HeadScanPersistenceTest {
     }
 
     @Test
-    void shouldDiscoverReplacementDepositAfterForkAndRestart() {
-        var addressIndex = mock(TronAddressIndex.class);
-        var currencyIndex = mock(TronCurrencyIndex.class);
-        var parser = mock(DepositDiscoveryService.class);
-        var publisher = mock(DepositConfirmedPublisher.class);
-        when(addressIndex.isReady()).thenReturn(true);
-        when(currencyIndex.isReady()).thenReturn(true);
-        TronBlockHeaderReader reader = mock(TronBlockHeaderReader.class);
-        when(nodeManager.openBlockHeaderReader(anyLong())).thenReturn(reader);
-        when(nodeManager.getBlockHeaderByHeight(anyLong())).thenAnswer(i -> reader.getBlockHeaderByHeight(i.getArgument(0)));
-        when(reader.getBlockHeaderByHeight(anyLong())).thenAnswer(invocation -> {
-            long height = invocation.getArgument(0);
-            return height(height, "h" + height);
-        });
-        when(nodeManager.getSolidHeight()).thenReturn(height(102, "h102"));
-        when(parser.discover(any())).thenReturn(List.of());
-        for (long h = 100; h <= 102; h++) {
-            when(nodeManager.getBlockDataByHeight(h)).thenReturn(block(h, "h" + h));
-        }
-        var oldDeposit = deposit("old-transaction", "h101");
-        when(parser.discover(block(101, "h101"))).thenReturn(List.of(oldDeposit));
-        var scanner = scanner(progressService, addressIndex, currencyIndex, parser, publisher);
-        assertThat(scanner.scanBlocks()).isEqualTo(3);
-        verify(publisher).publishAndWait(block(101, "h101"), List.of(oldDeposit));
-
-        // 101、102 被替换，二分查到最近共同区块 100，先回退而不发送新事件。
-        when(reader.getBlockHeaderByHeight(101)).thenReturn(height(101, "new101"));
-        when(reader.getBlockHeaderByHeight(102)).thenReturn(height(102, "new102"));
-        assertThat(scanner.scanBlocks()).isZero();
-        assertThat(checkpointService.findByNetwork("MAINNET").getLastBlockNumber()).isEqualTo(100);
-        assertThat(scannedBlockService.findByHeight("MAINNET", 101)).isNull();
-
-        // 重新创建业务对象模拟重启，完全依靠数据库边界重扫，发现替换分支中的充值。
-        HeadScanProgressService restartedProgress = createProgressService();
-        var restartedScanner = scanner(restartedProgress, addressIndex, currencyIndex, parser, publisher);
-        TronBlockData new101 = block(101, "new101");
-        TronBlockData new102 = new TronBlockData("full", 102, "new102", "new101", Instant.EPOCH, List.of(), Map.of());
-        when(nodeManager.getBlockDataByHeight(101)).thenReturn(new101);
-        when(nodeManager.getBlockDataByHeight(102)).thenReturn(new102);
-        var newDeposit = deposit("replacement-transaction", "new101");
-        when(parser.discover(new101)).thenReturn(List.of(newDeposit));
-
-        assertThat(restartedScanner.scanBlocks()).isEqualTo(2);
-        verify(publisher).publishAndWait(new101, List.of(newDeposit));
-        assertThat(scannedBlockService.findOldestBlock("MAINNET").getBlockNumber()).isEqualTo(99);
-        assertThat(checkpointService.findByNetwork("MAINNET").getLastBlockHash()).isEqualTo("new102");
-    }
-
-    @Test
     void shouldRollbackProgressSummaryAndCleanupTogether() {
         properties.setBlockHistorySize(2);
         TronScanCheckpoint current = prepareHistoryThrough(199);
@@ -415,19 +360,6 @@ class HeadScanPersistenceTest {
         jdbc.batchUpdate("INSERT INTO tron_scanned_block VALUES (?, ?, ?)", rows);
         checkpointService.updatePosition("MAINNET", lastBlockNumber, "h" + lastBlockNumber);
         return progressService.loadCheckpoint();
-    }
-
-    private TronDepositEvent deposit(String txId, String hash) {
-        return new TronDepositEvent("USDT", "contract", txId,
-            0, 101L, hash, Instant.EPOCH, "sender", "receiver", BigInteger.ONE);
-    }
-
-    private HeadBlockScanService scanner(HeadScanProgressService progress, TronAddressIndex addresses,
-                                        TronCurrencyIndex currencies, DepositDiscoveryService parser,
-                                        DepositConfirmedPublisher publisher) {
-        HeadBlockAncestorFinder finder = new HeadBlockAncestorFinder(nodeManager, scannedBlockService);
-        HeadBlockContinuityService continuity = new HeadBlockContinuityService(nodeManager, finder, progress);
-        return new HeadBlockScanService(properties, addresses, currencies, nodeManager, parser, publisher, continuity, progress);
     }
 
     private HeadScanProgressService createProgressService() {

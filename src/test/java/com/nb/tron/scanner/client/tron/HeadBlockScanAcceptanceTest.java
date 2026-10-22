@@ -38,8 +38,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 
@@ -64,11 +62,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * 充值发现与分叉恢复的整条 Scanner 流程验收。
+ * 固化区块充值发现与扫描连续性的整条 Scanner 流程验收。
  *
  * <p>使用可切换分支的本地 HTTP 节点、真实解析器、MyBatis 和手动事务。
- * Kafka 的 ACK 使用受控 Future，验证发送、失败、回退及重启后的实际数据库结果。</p>
- * <p>分支由测试注入，不代表公共测试网发生了真实分叉。</p>
+ * Kafka 的 ACK 使用受控 Future，验证发送、失败、连续性阻断及重启后的实际数据库结果。</p>
+ * <p>链数据变化由测试注入，用于验证固化证据异常时停止扫描且不自动修改进度。</p>
  * <p>
  * Author: bin jack
  * Date: 05.10.26
@@ -213,105 +211,49 @@ class HeadBlockScanAcceptanceTest {
         assertThat(output).contains("averageBlockMillis=null");
     }
 
-    @ParameterizedTest
-    @ValueSource(ints = {1, 2, 5, 7})
-    void shouldRewindDifferentForkDepthsAndReplayAfterRestart(int forkDepth, CapturedOutput output) {
-        job.runRound();
-        long commonHeight = 106 - forkDepth;
-        forkFrom(commonHeight, "new");
-        int messagesBeforeRewind = sentEvents.size();
-
-        assertThat(job.runRound()).isZero();
-        assertCheckpoint(commonHeight, "h" + commonHeight);
-        assertThat(output).contains("completed=true，forkRecheck=true，startHeight=106，lastCompletedHeight=106，scanBoundaryHeight=null，remainingBlocks=null，scannedCount=0");
-        assertThat(database.blocks().findByHeight("MAINNET", commonHeight + 1)).isNull();
-        assertThat(sentEvents).hasSize(messagesBeforeRewind);
-
-        restartScanner();
-        assertThat(job.runRound()).isEqualTo(forkDepth);
-        assertCheckpoint(106, "new106");
-        for (long height = commonHeight + 1; height <= 106; height++) {
-            assertThat(database.blocks().findByHeight("MAINNET", height).getBlockHash()).isEqualTo("new" + height);
-        }
-        // 保留同一交易 ID 的重新打包样本：重新发送时携带新 Hash，供Chain Server幂等接收。
-        for (DepositConfirmedEvent event : sentEvents.subList(messagesBeforeRewind, sentEvents.size())) {
-            assertThat(event.getBlockHash()).startsWith("new");
-        }
-    }
-
     @Test
-    void shouldDetectForkDuringSameRoundBeforeParsingTheNextBlock(CapturedOutput output) {
+    void shouldStopWhenNextSolidifiedBlockCannotConnect(CapturedOutput output) {
         afterAck = () -> {
             forkFrom(99, "new");
             afterAck = () -> { };
         };
 
-        // 100 的 ACK 已收到，随后 100 被替换；读 101 时父 Hash 接不上刚保存的旧 100。
-        assertThat(job.runRound()).isZero();
-        assertCheckpoint(99, "h99");
-        assertThat(database.blocks().findByHeight("MAINNET", 100)).isNull();
-        assertThat(sentEvents).hasSize(1);
-        assertThat(output).contains("completed=true，forkRecheck=true，startHeight=99，lastCompletedHeight=100，scanBoundaryHeight=106，remainingBlocks=null，scannedCount=1");
-
-        restartScanner();
-        assertThat(job.runRound()).isEqualTo(7);
-        assertCheckpoint(106, "new106");
-        assertThat(sentEvents).hasSize(3);
-    }
-
-    @Test
-    void shouldRecoverFromTwoSuccessiveForks() {
-        job.runRound();
-        forkFrom(103, "branch-b-");
-        assertThat(job.runRound()).isZero();
-        assertThat(job.runRound()).isEqualTo(3);
-        assertCheckpoint(106, "branch-b-106");
-
-        // 第二次分叉的共同区块属于第一次重扫的新分支。
-        forkFrom(104, "branch-c-");
-        assertThat(job.runRound()).isZero();
-        assertCheckpoint(104, "branch-b-104");
-        restartScanner();
-        assertThat(job.runRound()).isEqualTo(2);
-        assertCheckpoint(106, "branch-c-106");
-        assertThat(database.blocks().findByHeight("MAINNET", 104).getBlockHash()).isEqualTo("branch-b-104");
-    }
-
-    @Test
-    void shouldRecoverAtRecentWindowBoundary() {
-        properties.setBlockHistorySize(4);
-        prepareCleanupBoundarySamples();
-        job.runRound();
-        assertThat(database.blocks().findByHeight("MAINNET", 196)).isNull();
-        forkFrom(197, "new");
-
-        assertThat(job.runRound()).isZero();
-        assertCheckpoint(197, "h197");
-        assertThat(job.runRound()).isEqualTo(3);
-        assertCheckpoint(200, "new200");
-    }
-
-    @Test
-    void shouldReportDeepForkAndPreserveProgressAfterRestart() {
-        properties.setBlockHistorySize(4);
-        prepareCleanupBoundarySamples();
-        job.runRound();
-        forkFrom(196, "new");
-        int messagesBeforeFork = sentEvents.size();
-
-        // 保留 197～200，共同区块 196 已被清理：不能直接跳过新分支，也不从配置起点重扫。
-        assertThat(database.blocks().findByHeight("MAINNET", 196)).isNull();
+        // 100提交后节点返回的101无法接上检查点，扫描必须停止且不得自动回退已经提交的100。
         assertThatThrownBy(job::runRound).isInstanceOf(BizException.class)
             .extracting(e -> ((BizException) e).getErrorCode())
-            .isEqualTo(ScannerBizErrCode.HEAD_SCAN_COMMON_ANCESTOR_NOT_FOUND);
-        assertCheckpoint(200, "h200");
-        assertThat(database.blocks().findByHeight("MAINNET", 200).getBlockHash()).isEqualTo("h200");
-        assertThat(sentEvents).hasSize(messagesBeforeFork);
+            .isEqualTo(ScannerBizErrCode.SOLIDIFIED_SCAN_CHAIN_INVALID);
+        assertCheckpoint(100, "h100");
+        assertThat(database.blocks().findByHeight("MAINNET", 100)).isNotNull();
+        assertThat(sentEvents).hasSize(1);
+        assertThat(output).contains("TRON固化区块不连续，停止扫描并等待人工确认")
+            .contains("errorCode=916003")
+            .contains("expectedParentHash=h100")
+            .contains("actualParentHash=new100");
 
+        // 重启后复核同一检查点仍失败，证明异常不会被自动回退或跳过。
         restartScanner();
         assertThatThrownBy(job::runRound).isInstanceOf(BizException.class);
-        assertCheckpoint(200, "h200");
-        assertThat(sentEvents).hasSize(messagesBeforeFork);
+        assertCheckpoint(100, "h100");
+        assertThat(sentEvents).hasSize(1);
+    }
+
+    @Test
+    void shouldStopAndPreserveProgressWhenSolidifiedCheckpointChanges(CapturedOutput output) {
+        job.runRound();
+        forkFrom(105, "new");
+        int messageCount = sentEvents.size();
+
+        assertThatThrownBy(job::runRound).isInstanceOf(BizException.class)
+            .extracting(e -> ((BizException) e).getErrorCode())
+            .isEqualTo(ScannerBizErrCode.SOLIDIFIED_SCAN_CHAIN_INVALID);
+        assertCheckpoint(106, "h106");
+        assertThat(database.blocks().findByHeight("MAINNET", 106).getBlockHash()).isEqualTo("h106");
+        assertThat(sentEvents).hasSize(messageCount);
+        assertThat(output).contains("TRON固化检查点Hash不一致，停止扫描并等待人工确认")
+            .contains("errorCode=916003")
+            .contains("blockNumber=106")
+            .contains("checkpointHash=h106")
+            .contains("chainHash=new106");
     }
 
     @Test
@@ -393,20 +335,6 @@ class HeadBlockScanAcceptanceTest {
         assertThat(sentEvents).hasSize(3);
         assertThat(sentEvents.get(0)).isEqualTo(sentEvents.get(1));
         assertThat(output).contains("completed=true，forkRecheck=false，startHeight=99，lastCompletedHeight=106，scanBoundaryHeight=106，remainingBlocks=0，scannedCount=7");
-    }
-
-    /**
-     * 从 194 扫到 200，经过一次真实清理；194、195 带充值，其余为空块。
-     */
-    private void prepareCleanupBoundarySamples() {
-        chain.clear();
-        chain.put(0L, sample(0L, "h0", "", 0));
-        for (long height = 193; height <= 200; height++) {
-            int deposits = height == 194 ? 1 : height == 195 ? 2 : 0;
-            chain.put(height, sample(height, "h" + height, "h" + (height - 1), deposits));
-        }
-        properties.setStartBlockHeight(194L);
-        restartScanner();
     }
 
     private void restartScanner() {
