@@ -35,7 +35,7 @@ public class TronScannerProperties {
     private String expectedGenesisBlockId;
 
     /**
-     * 首次扫描的起始高度；仅首次初始化使用，分叉时查找最近的共同区块
+     * 首次扫描的起始高度，仅首次初始化检查点时使用
      */
     private Long startBlockHeight;
 
@@ -48,12 +48,6 @@ public class TronScannerProperties {
      * 发送充值事件后等待 Kafka Broker 确认的最长时间
      */
     private Duration kafkaAckTimeout = Duration.ofSeconds(30);
-
-    /**
-     * 连续保存的区块摘要条数，默认 2 万；每 100 块清理一次，期间最多多保留 99 条。
-     * 分叉时在保留摘要中查找共同区块；找不到则报错并保持原进度。
-     */
-    private int blockHistorySize = 20_000;
 
     /**
      * TRON 节点访问策略及节点列表
@@ -76,7 +70,6 @@ public class TronScannerProperties {
         BizAssert.isTrue(maxBlocksPerRun > 0, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.isTrue(isPositive(kafkaAckTimeout) && kafkaAckTimeout.toMillis() > 0,
             ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
-        BizAssert.isTrue(blockHistorySize >= 2, ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
         BizAssert.hasText(expectedGenesisBlockId, ScannerBizErrCode.TRON_SDK_CONFIG_INVALID);
     }
 

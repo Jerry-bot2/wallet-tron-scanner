@@ -17,7 +17,7 @@ public interface ITronScanCheckpointService extends IBaseService<TronScanCheckpo
     TronScanCheckpoint findByNetwork(String chainNetwork);
 
     /**
-     * 更新扫描高度和 Hash，正常推进与分叉回退共用。
+     * 更新最后完整处理的固化区块高度和Hash。
      */
     boolean updatePosition(String chainNetwork, long blockNumber, String blockHash);
 }

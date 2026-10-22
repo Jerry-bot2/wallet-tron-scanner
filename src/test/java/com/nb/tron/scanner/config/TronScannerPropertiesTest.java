@@ -50,15 +50,6 @@ class TronScannerPropertiesTest {
     }
 
     @Test
-    void shouldRejectHistoryWindowWithoutPredecessor() {
-        TronScannerProperties properties = validProperties();
-        properties.setBlockHistorySize(1);
-        assertThatThrownBy(properties::validate).isInstanceOf(BizException.class)
-            .extracting(e -> ((BizException) e).getErrorCode())
-            .isEqualTo(ScannerBizErrCode.SCANNER_RUNTIME_CONFIG_INVALID);
-    }
-
-    @Test
     void shouldRequireSolidityNode() {
         TronScannerProperties properties = validProperties();
         properties.getNode().setNodes(List.of(

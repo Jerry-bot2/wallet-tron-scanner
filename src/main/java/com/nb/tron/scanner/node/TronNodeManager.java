@@ -49,24 +49,6 @@ public class TronNodeManager {
         return read(() -> blockGateway.getBlockHeaderByHeight(blockHeight));
     }
 
-    /**
-     * 共同区块查找期间固定使用一个已同步到扫描进度的FullNode。
-     */
-    public TronBlockHeaderReader openBlockHeaderReader(long requiredBlockHeight) {
-        return new TronBlockHeaderReader(TronSdkCalls.execute(() ->
-            blockGateway.openBlockHeaderReader(requiredBlockHeight)));
-    }
-
-    /**
-     * 节点返回了不连续区块时主动冷却，下一轮重新选择其他节点。
-     */
-    public void startRecoveryCooldown(String nodeCode) {
-        TronSdkCalls.execute(() -> {
-            blockGateway.startRecoveryCooldown(nodeCode);
-            return null;
-        });
-    }
-
     private <T> T read(Supplier<T> operation) {
         return HeadScanStatistics.timeNodeRead(() -> TronSdkCalls.execute(operation));
     }

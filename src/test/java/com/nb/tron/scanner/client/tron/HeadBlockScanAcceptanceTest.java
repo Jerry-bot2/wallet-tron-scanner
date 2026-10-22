@@ -10,7 +10,6 @@ import com.nb.core.exception.BizException;
 import com.nb.kafka.core.KafkaPublishResult;
 import com.nb.kafka.core.KafkaPublisher;
 import com.nb.tron.scanner.biz.DepositDiscoveryService;
-import com.nb.tron.scanner.biz.HeadBlockAncestorFinder;
 import com.nb.tron.scanner.biz.HeadBlockContinuityService;
 import com.nb.tron.scanner.biz.HeadBlockScanService;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
@@ -64,7 +63,7 @@ import static org.mockito.Mockito.when;
 /**
  * 固化区块充值发现与扫描连续性的整条 Scanner 流程验收。
  *
- * <p>使用可切换分支的本地 HTTP 节点、真实解析器、MyBatis 和手动事务。
+ * <p>使用可切换分支的本地HTTP节点、真实解析器和MyBatis检查点。
  * Kafka 的 ACK 使用受控 Future，验证发送、失败、连续性阻断及重启后的实际数据库结果。</p>
  * <p>链数据变化由测试注入，用于验证固化证据异常时停止扫描且不自动修改进度。</p>
  * <p>
@@ -200,7 +199,7 @@ class HeadBlockScanAcceptanceTest {
             .containsExactly("TRX", "USDT");
         assertThat(sentEvents.get(1).getDeposits().get(1).getRawAmount()).isEqualTo(BigInteger.valueOf(1_000_000));
         assertCheckpoint(106, "h106");
-        assertThat(output).contains("completed=true，forkRecheck=false，startHeight=99，lastCompletedHeight=106，scanBoundaryHeight=106，remainingBlocks=0，scannedCount=7");
+        assertThat(output).contains("completed=true，startHeight=99，lastCompletedHeight=106，scanBoundaryHeight=106，remainingBlocks=0，scannedCount=7");
         assertThat(output).contains("nodeReadMillis=", "kafkaAckMillis=", "progressCommitMillis=");
         assertThat(output.getOut().lines().filter(line -> line.contains("TRON固化扫描本轮结束")).count()).isEqualTo(1L);
 
@@ -223,7 +222,6 @@ class HeadBlockScanAcceptanceTest {
             .extracting(e -> ((BizException) e).getErrorCode())
             .isEqualTo(ScannerBizErrCode.SOLIDIFIED_SCAN_CHAIN_INVALID);
         assertCheckpoint(100, "h100");
-        assertThat(database.blocks().findByHeight("MAINNET", 100)).isNotNull();
         assertThat(sentEvents).hasSize(1);
         assertThat(output).contains("TRON固化区块不连续，停止扫描并等待人工确认")
             .contains("errorCode=916003")
@@ -247,7 +245,6 @@ class HeadBlockScanAcceptanceTest {
             .extracting(e -> ((BizException) e).getErrorCode())
             .isEqualTo(ScannerBizErrCode.SOLIDIFIED_SCAN_CHAIN_INVALID);
         assertCheckpoint(106, "h106");
-        assertThat(database.blocks().findByHeight("MAINNET", 106).getBlockHash()).isEqualTo("h106");
         assertThat(sentEvents).hasSize(messageCount);
         assertThat(output).contains("TRON固化检查点Hash不一致，停止扫描并等待人工确认")
             .contains("errorCode=916003")
@@ -265,7 +262,6 @@ class HeadBlockScanAcceptanceTest {
 
         assertThatThrownBy(job::runRound).isInstanceOf(BizException.class);
         assertCheckpoint(99, "h99");
-        assertThat(database.blocks().findByHeight("MAINNET", 100)).isNull();
         assertThat(sentEvents).isEmpty();
 
         restartScanner();
@@ -282,12 +278,12 @@ class HeadBlockScanAcceptanceTest {
 
         assertThatThrownBy(job::runRound).isInstanceOf(BizException.class);
         assertCheckpoint(100, "h100");
-        assertThat(output).contains("completed=false，forkRecheck=false，startHeight=99，lastCompletedHeight=100，scanBoundaryHeight=106，remainingBlocks=6，scannedCount=1");
+        assertThat(output).contains("completed=false，startHeight=99，lastCompletedHeight=100，scanBoundaryHeight=106，remainingBlocks=6，scannedCount=1");
 
         restartScanner();
         assertThat(job.runRound()).isEqualTo(6);
         assertCheckpoint(106, "h106");
-        assertThat(output).contains("completed=true，forkRecheck=false，startHeight=100，lastCompletedHeight=106，scanBoundaryHeight=106，remainingBlocks=0，scannedCount=6");
+        assertThat(output).contains("completed=true，startHeight=100，lastCompletedHeight=106，scanBoundaryHeight=106，remainingBlocks=0，scannedCount=6");
     }
 
     @Test
@@ -299,11 +295,10 @@ class HeadBlockScanAcceptanceTest {
             afterAck = () -> { };
         };
 
-        // 300 笔已发送，第二组失败：第三组不发送，摘要和进度都不能保存。
+        // 300笔已发送，第二组失败：第三组不发送，检查点不能推进。
         assertThatThrownBy(job::runRound).isInstanceOf(BizException.class);
         assertThat(sentEvents).extracting(event -> event.getDeposits().size()).containsExactly(300, 300);
         assertCheckpoint(99, "h99");
-        assertThat(database.blocks().findByHeight("MAINNET", 100)).isNull();
 
         // 重启后重新发送整个区块；300、300、50 全部 ACK 后，才推进到 100。
         restartScanner();
@@ -315,7 +310,6 @@ class HeadBlockScanAcceptanceTest {
         assertThat(sentEvents.subList(2, 5).stream().flatMap(event -> event.getDeposits().stream())
             .map(event -> event.getTxId()).distinct().toList()).hasSize(650);
         assertCheckpoint(100, "h100");
-        assertThat(database.blocks().findByHeight("MAINNET", 100).getBlockHash()).isEqualTo("h100");
     }
 
     @Test
@@ -325,16 +319,15 @@ class HeadBlockScanAcceptanceTest {
         assertThatThrownBy(job::runRound).isInstanceOf(BizException.class)
             .extracting(e -> ((BizException) e).getErrorCode())
             .isEqualTo(ScannerBizErrCode.HEAD_SCAN_KAFKA_PUBLISH_FAILED);
-        assertThat(output).contains("completed=false，forkRecheck=false，startHeight=99，lastCompletedHeight=99，scanBoundaryHeight=106，remainingBlocks=7，scannedCount=0");
+        assertThat(output).contains("completed=false，startHeight=99，lastCompletedHeight=99，scanBoundaryHeight=106，remainingBlocks=7，scannedCount=0");
         assertCheckpoint(99, "h99");
-        assertThat(database.blocks().findByHeight("MAINNET", 100)).isNull();
 
         restartScanner();
         assertThat(job.runRound()).isEqualTo(7);
         assertCheckpoint(106, "h106");
         assertThat(sentEvents).hasSize(3);
         assertThat(sentEvents.get(0)).isEqualTo(sentEvents.get(1));
-        assertThat(output).contains("completed=true，forkRecheck=false，startHeight=99，lastCompletedHeight=106，scanBoundaryHeight=106，remainingBlocks=0，scannedCount=7");
+        assertThat(output).contains("completed=true，startHeight=99，lastCompletedHeight=106，scanBoundaryHeight=106，remainingBlocks=0，scannedCount=7");
     }
 
     private void restartScanner() {
@@ -350,8 +343,7 @@ class HeadBlockScanAcceptanceTest {
         nodePool.refresh();
         var manager = new TronNodeManager(new TronBlockGateway(nodePool, nodeClient, 2));
         var progress = database.progress(properties, manager);
-        var finder = new HeadBlockAncestorFinder(manager, database.blocks());
-        var continuity = new HeadBlockContinuityService(manager, finder, progress);
+        var continuity = new HeadBlockContinuityService(manager);
         job = new TestScanJob(new HeadBlockScanService(properties, addressIndex, currencyIndex,
             manager, parser, publisher, continuity, progress));
     }

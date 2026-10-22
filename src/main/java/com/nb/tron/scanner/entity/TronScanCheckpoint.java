@@ -9,8 +9,8 @@ import java.time.Instant;
 
 /**
  * <p>
- * TRON Head 扫块检查点。
- * 保存每个 TRON 网络最后完整处理的 Head 高度和 Hash。
+ * TRON固化区块扫描检查点。
+ * 保存每个TRON网络最后完整处理的固化区块高度和Hash。
  * </p>
  * Author: bin jack
  * Date: 02.10.26
@@ -26,12 +26,12 @@ public class TronScanCheckpoint {
     private String chainNetwork;
 
     /**
-     * 最后完整解析并成功上报的 Head 区块高度
+     * 最后完整解析并成功上报的固化区块高度
      */
     private Long lastBlockNumber;
 
     /**
-     * 最后完整处理的 Head 区块 Hash
+     * 最后完整处理的固化区块Hash
      */
     private String lastBlockHash;
 

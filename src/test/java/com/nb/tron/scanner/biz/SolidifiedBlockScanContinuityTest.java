@@ -63,8 +63,7 @@ class SolidifiedBlockScanContinuityTest {
         when(currencyIndex.isReady()).thenReturn(true);
         when(discoveryService.discover(any())).thenReturn(List.of());
 
-        HeadBlockContinuityService continuityService = new HeadBlockContinuityService(
-            nodeManager, mock(HeadBlockAncestorFinder.class), progressService);
+        HeadBlockContinuityService continuityService = new HeadBlockContinuityService(nodeManager);
         scanService = new HeadBlockScanService(
             properties, addressIndex, currencyIndex, nodeManager,
             discoveryService, depositPublisher, continuityService, progressService);
@@ -81,7 +80,6 @@ class SolidifiedBlockScanContinuityTest {
 
         verify(nodeManager).getBlockHeaderByHeight(100L);
         verify(nodeManager).getSolidHeight();
-        verify(progressService, never()).rewind(any(), any());
     }
 
     @Test
@@ -104,7 +102,6 @@ class SolidifiedBlockScanContinuityTest {
         verify(nodeManager, never()).getSolidHeight();
         verifyNoInteractions(discoveryService, depositPublisher);
         verify(progressService, never()).advance(any(), any());
-        verify(progressService, never()).rewind(any(), any());
     }
 
     @Test
@@ -127,7 +124,6 @@ class SolidifiedBlockScanContinuityTest {
             "actualParentHash=wrong-parent");
         verifyNoInteractions(discoveryService, depositPublisher);
         verify(progressService, never()).advance(any(), any());
-        verify(progressService, never()).rewind(any(), any());
     }
 
     @Test
@@ -155,7 +151,6 @@ class SolidifiedBlockScanContinuityTest {
 
         verify(discoveryService).discover(block);
         verify(progressService).advance(checkpoint, block);
-        verify(progressService, never()).rewind(any(), any());
     }
 
     @Test
@@ -170,7 +165,6 @@ class SolidifiedBlockScanContinuityTest {
         assertThat(scanService.scanBlocks()).isEqualTo(1);
 
         verify(nodeManager, never()).getBlockHeaderByHeight(-1L);
-        verify(progressService, never()).rewind(any(), any());
     }
 
     @Test
@@ -184,7 +178,6 @@ class SolidifiedBlockScanContinuityTest {
         verify(nodeManager, never()).getSolidHeight();
         verifyNoInteractions(discoveryService, depositPublisher);
         verify(progressService, never()).advance(any(), any());
-        verify(progressService, never()).rewind(any(), any());
     }
 
     private void prepareNextBlock(TronScanCheckpoint checkpoint, TronBlockData block) {

@@ -14,11 +14,6 @@ public final class TronConstants {
     public static final String CHAIN_CODE = "TRON";
 
     /**
-     * 每扫描到 100 的整数倍高度，清理一次旧摘要，避免每块都查询和清理历史。
-     */
-    public static final int BLOCK_HISTORY_CLEANUP_INTERVAL = 100;
-
-    /**
      * 一条最终确认消息最多携带300笔充值，超出时按固定数量拆分。
      */
     public static final int DEPOSIT_MESSAGE_BATCH_SIZE = 300;

@@ -1,14 +1,10 @@
 package com.nb.tron.scanner.client.tron;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nb.tron.scanner.biz.HeadBlockAncestorFinder;
 import com.nb.tron.scanner.config.TronNodeEndpointProperties;
 import com.nb.tron.scanner.config.TronScannerProperties;
-import com.nb.tron.scanner.entity.TronScanCheckpoint;
-import com.nb.tron.scanner.entity.TronScannedBlock;
 import com.nb.tron.scanner.node.TronNodeManager;
 import com.nb.tron.scanner.node.TronNodeStartupValidator;
-import com.nb.tron.scanner.support.HeadScanTestDatabase;
 import com.nb.tron.sdk.block.TronBlockGateway;
 import com.nb.tron.sdk.client.TronHttpTransport;
 import com.nb.tron.sdk.client.TronNodeClient;
@@ -23,9 +19,7 @@ import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.net.http.HttpClient;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -34,8 +28,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * TRON 真实测试网节点验收。
  *
  * <p>显式配置测试网地址和创世块 ID 后执行，普通构建自动跳过。
- * 公共测试网只读取数据；分叉场景向独立 H2 数据库注入旧分支 Hash，
- * 再使用真实节点查找共同区块、回退和重扫，不声称测试网发生真实分叉。</p>
+ * 公共测试网只读取数据，验证FullNode读取结果与SolidityNode固化边界保持一致。</p>
  * <p>
  * Author: bin jack
  * Date: 03.10.26
@@ -104,57 +97,6 @@ class TronNodeTestnetAcceptanceTest {
             properties.getChainNetwork(), solidHeight.blockHeight(), fullBlock.blockId());
     }
 
-    @Test
-    void shouldFindRewindAndReplayInjectedOldBranchesUsingRealTestnetBlocks() throws Exception {
-        TronNodeManager manager = validatedManager();
-        long lastHeight = manager.getSolidHeight().blockHeight() - 100;
-        long firstHeight = lastHeight - 8;
-        properties.setStartBlockHeight(firstHeight + 1);
-        Map<Long, TronNodeHeight> headers = new LinkedHashMap<>();
-        for (long height = firstHeight; height <= lastHeight; height++) {
-            headers.put(height, manager.getBlockHeaderByHeight(height));
-        }
-
-        // 三种深度共用同一段真实历史，仅本地保留的分叉部分 Hash 被替换。
-        for (int forkDepth : List.of(1, 4, 8)) {
-            long commonHeight = lastHeight - forkDepth;
-            try (HeadScanTestDatabase database = new HeadScanTestDatabase()) {
-                for (TronNodeHeight header : headers.values()) {
-                    String storedHash = header.blockHeight() <= commonHeight
-                        ? header.blockId() : injectedOldHash(header.blockId());
-                    database.blocks().saveBlock(new TronScannedBlock().setChainNetwork(properties.getChainNetwork())
-                        .setBlockNumber(header.blockHeight()).setBlockHash(storedHash));
-                }
-                TronScanCheckpoint oldCheckpoint = new TronScanCheckpoint()
-                    .setChainNetwork(properties.getChainNetwork()).setLastBlockNumber(lastHeight)
-                    .setLastBlockHash(injectedOldHash(headers.get(lastHeight).blockId()));
-                database.checkpoints().save(oldCheckpoint);
-                var progress = database.progress(properties, manager);
-                var finder = new HeadBlockAncestorFinder(manager, database.blocks());
-                var common = finder.findCommonAncestor(progress.loadCheckpoint());
-                progress.rewind(progress.loadCheckpoint(), common);
-                assertThat(database.checkpoints().findByNetwork(properties.getChainNetwork()).getLastBlockNumber())
-                    .isEqualTo(commonHeight);
-                assertThat(database.blocks().findByHeight(properties.getChainNetwork(), commonHeight + 1)).isNull();
-
-                // 重新创建进度服务模拟重启，用真实区块和回执逐块重扫。
-                var restartedProgress = database.progress(properties, manager);
-                TronScanCheckpoint checkpoint = restartedProgress.loadCheckpoint();
-                for (long height = commonHeight + 1; height <= lastHeight; height++) {
-                    TronBlockData block = manager.getBlockDataByHeight(height);
-                    assertThat(block.parentBlockId()).isEqualTo(checkpoint.getLastBlockHash());
-                    checkpoint = restartedProgress.advance(checkpoint, block);
-                }
-                assertThat(checkpoint.getLastBlockNumber()).isEqualTo(lastHeight);
-                assertThat(checkpoint.getLastBlockHash()).isEqualTo(headers.get(lastHeight).blockId());
-                assertThat(database.blocks().findOldestBlock(properties.getChainNetwork()).getBlockNumber())
-                    .isEqualTo(firstHeight);
-                System.out.printf("TESTNET_INJECTED_FORK network=%s depth=%d common=%d replayedTo=%d%n",
-                    properties.getChainNetwork(), forkDepth, commonHeight, lastHeight);
-            }
-        }
-    }
-
     private TronNodeManager validatedManager() {
         TronNodePool nodePool = new TronNodePool(
             properties.getNode().getNodes().stream()
@@ -168,11 +110,6 @@ class TronNodeTestnetAcceptanceTest {
             nodeClient);
         new TronNodeStartupValidator(nodePool).validateConfiguredNodes();
         return new TronNodeManager(new TronBlockGateway(nodePool, nodeClient, 2));
-    }
-
-    private String injectedOldHash(String blockId) {
-        char last = blockId.charAt(blockId.length() - 1);
-        return blockId.substring(0, blockId.length() - 1) + (last == '0' ? '1' : '0');
     }
 
     private TronNodeEndpointProperties endpoint(String code, TronNodeRole role, String baseUrl, String apiKey) {

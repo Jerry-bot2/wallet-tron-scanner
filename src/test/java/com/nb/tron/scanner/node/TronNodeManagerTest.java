@@ -76,25 +76,6 @@ class TronNodeManagerTest {
     }
 
     @Test
-    void shouldKeepSameNodeThroughoutAncestorSearch() {
-        TronNodeDefinition primary = node("full-primary", 1);
-        TronNodeDefinition backup = node("full-backup", 2);
-        TronNodePool nodePool = healthyPool(primary, backup);
-        TronNodeManager manager = new TronNodeManager(new TronBlockGateway(nodePool, nodeClient, 2));
-        when(nodeClient.getBlockHeaderByHeight(primary.endpoint(), 90L)).thenReturn(height(primary, 90L));
-        when(nodeClient.getBlockHeaderByHeight(primary.endpoint(), 95L)).thenReturn(height(primary, 95L));
-
-        TronBlockHeaderReader reader = manager.openBlockHeaderReader(100L);
-        reader.getBlockHeaderByHeight(90L);
-        manager.startRecoveryCooldown(primary.nodeCode());
-        reader.getBlockHeaderByHeight(95L);
-
-        verify(nodeClient).getBlockHeaderByHeight(primary.endpoint(), 90L);
-        verify(nodeClient).getBlockHeaderByHeight(primary.endpoint(), 95L);
-        verify(nodeClient, never()).getBlockHeaderByHeight(backup.endpoint(), 95L);
-    }
-
-    @Test
     void shouldRejectInvalidHeightBeforeCallingNode() {
         TronNodeDefinition primary = node("full-primary", 1);
         TronNodePool nodePool = healthyPool(primary);

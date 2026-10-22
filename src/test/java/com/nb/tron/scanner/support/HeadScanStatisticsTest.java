@@ -26,7 +26,7 @@ class HeadScanStatisticsTest {
                 HeadScanStatistics.recordCheckpointLoad(() -> checkpoint(100));
                 HeadScanStatistics.observeScanBoundary(105);
 
-                // 其他线程即使调用相同入口，也不能改写扫描线程的高度、块数和分叉标记。
+                // 其他线程即使调用相同入口，也不能改写扫描线程的高度和完成块数。
                 CompletableFuture.runAsync(() -> {
                     HeadScanStatistics.timeNodeRead(() -> {
                         HeadScanStatistics.observeScanBoundary(10000);
@@ -34,7 +34,6 @@ class HeadScanStatisticsTest {
                     });
                     HeadScanStatistics.recordCheckpointLoad(() -> checkpoint(9000));
                     HeadScanStatistics.timeProgressCommit(() -> checkpoint(9001));
-                    HeadScanStatistics.markForkRecheck();
                 }, executor).join();
 
                 HeadScanStatistics.timeProgressCommit(() -> checkpoint(101));
@@ -44,7 +43,7 @@ class HeadScanStatisticsTest {
             assertThat(result).isEqualTo(1);
         }
 
-        assertThat(output).contains("completed=true，forkRecheck=false，startHeight=100，lastCompletedHeight=101，scanBoundaryHeight=105，remainingBlocks=4，scannedCount=1");
+        assertThat(output).contains("completed=true，startHeight=100，lastCompletedHeight=101，scanBoundaryHeight=105，remainingBlocks=4，scannedCount=1");
         assertThat(output.getOut().lines().filter(line -> line.contains("TRON固化扫描本轮结束")).count()).isEqualTo(1L);
     }
 
@@ -68,8 +67,8 @@ class HeadScanStatisticsTest {
         });
 
         assertThat(result).isEqualTo(2);
-        assertThat(output).contains("completed=false，forkRecheck=false，startHeight=1000，lastCompletedHeight=1000，scanBoundaryHeight=1002，remainingBlocks=2，scannedCount=0");
-        assertThat(output).contains("completed=true，forkRecheck=false，startHeight=100，lastCompletedHeight=102，scanBoundaryHeight=105，remainingBlocks=3，scannedCount=2");
+        assertThat(output).contains("completed=false，startHeight=1000，lastCompletedHeight=1000，scanBoundaryHeight=1002，remainingBlocks=2，scannedCount=0");
+        assertThat(output).contains("completed=true，startHeight=100，lastCompletedHeight=102，scanBoundaryHeight=105，remainingBlocks=3，scannedCount=2");
     }
 
     private TronScanCheckpoint checkpoint(long height) {
