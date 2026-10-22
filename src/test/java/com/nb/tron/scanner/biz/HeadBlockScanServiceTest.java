@@ -284,6 +284,20 @@ class HeadBlockScanServiceTest {
     }
 
     @Test
+    void shouldStopBeforeReadingBlocksWhenSolidifiedHeightQueryFails() {
+        BizException failure = BizException.of(ScannerBizErrCode.TRON_SDK_CALL_FAILED);
+        when(progressService.loadCheckpoint()).thenReturn(checkpoint(99L, "block-99"));
+        when(nodeManager.getSolidHeight()).thenThrow(failure);
+
+        assertThatThrownBy(scanService::scanBlocks).isSameAs(failure);
+
+        verify(nodeManager, never()).getBlockDataByHeight(anyLong());
+        verify(blockParser, never()).discover(any());
+        verify(depositPublisher, never()).publishAndWait(any(), anyList());
+        verify(progressService, never()).advance(any(), any());
+    }
+
+    @Test
     void shouldCheckContinuityEvenWhenThereIsNoNewBlock() {
         TronScanCheckpoint checkpoint = checkpoint(100L, "old-block-100");
         when(progressService.loadCheckpoint()).thenReturn(checkpoint);

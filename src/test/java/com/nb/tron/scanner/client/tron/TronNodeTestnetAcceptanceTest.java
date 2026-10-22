@@ -45,14 +45,16 @@ class TronNodeTestnetAcceptanceTest {
     private TronScannerProperties properties;
     private TronNodeClient nodeClient;
     private TronNodeEndpointProperties fullNode;
+    private TronNodeEndpointProperties solidityNode;
     private String expectedGenesisBlockId;
 
     @BeforeEach
     void setUp() {
         String fullNodeUrl = System.getenv("TRON_FULL_NODE_PRIMARY_URL");
+        String solidityNodeUrl = System.getenv("TRON_SOLIDITY_NODE_URL");
         expectedGenesisBlockId = System.getenv("TRON_GENESIS_BLOCK_ID");
-        assumeTrue(hasText(fullNodeUrl) && hasText(expectedGenesisBlockId),
-            "未配置 TRON 测试网节点，跳过真实节点验收");
+        assumeTrue(hasText(fullNodeUrl) && hasText(solidityNodeUrl) && hasText(expectedGenesisBlockId),
+            "未同时配置TRON测试网FullNode、SolidityNode和创世块，跳过真实节点验收");
 
         String network = System.getenv("TRON_TEST_NETWORK");
         network = hasText(network) ? network : "NILE";
@@ -63,15 +65,19 @@ class TronNodeTestnetAcceptanceTest {
         nodeClient = new TronNodeClient(new TronHttpTransport(HttpClient.newBuilder().connectTimeout(properties.getNode().getConnectTimeout()).build(), new JsonCodec(new ObjectMapper()), properties.getNode().getReadTimeout(), properties.getNode().getMaxResponseSize().toBytes()));
         fullNode = endpoint("full-acceptance", TronNodeRole.FULL_NODE, fullNodeUrl,
             System.getenv("TRON_FULL_NODE_PRIMARY_API_KEY"));
-        properties.getNode().setNodes(List.of(fullNode));
+        solidityNode = endpoint("solidity-acceptance", TronNodeRole.SOLIDITY_NODE, solidityNodeUrl,
+            System.getenv("TRON_SOLIDITY_NODE_API_KEY"));
+        properties.getNode().setNodes(List.of(fullNode, solidityNode));
     }
 
     @Test
-    void shouldStartWithFullNodeOnlyAndReadConsecutiveBlocks() {
+    void shouldStartWithRequiredNodesAndReadConsecutiveSolidifiedBlocks() {
         TronNodeManager manager = validatedManager();
         TronNodeHeight head = manager.getHeadHeight();
-        long height = head.blockHeight() - 100;
+        TronNodeHeight solid = manager.getSolidHeight();
+        long height = solid.blockHeight() - 100;
         assertThat(height).isPositive();
+        assertThat(head.blockHeight()).isGreaterThanOrEqualTo(solid.blockHeight());
 
         TronBlockData block = manager.getBlockDataByHeight(height);
         TronBlockData nextBlock = manager.getBlockDataByHeight(height + 1);
@@ -79,17 +85,13 @@ class TronNodeTestnetAcceptanceTest {
         assertThat(block.receipts().keySet()).containsExactlyInAnyOrderElementsOf(
             block.transactions().stream().map(transaction -> transaction.transactionId()).toList());
         assertThat(nextBlock.receipts()).hasSize(nextBlock.transactions().size());
-        System.out.printf("TESTNET_READ network=%s host=%s head=%d blocks=%d..%d transactions=%d/%d%n",
-            properties.getChainNetwork(), fullNode.getBaseUrl().getHost(), head.blockHeight(),
+        System.out.printf("TESTNET_READ network=%s host=%s head=%d solid=%d blocks=%d..%d transactions=%d/%d%n",
+            properties.getChainNetwork(), fullNode.getBaseUrl().getHost(), head.blockHeight(), solid.blockHeight(),
             height, height + 1, block.transactions().size(), nextBlock.transactions().size());
     }
 
     @Test
-    void shouldReadConsistentBlockFromOptionalSolidityNode() {
-        String solidityUrl = System.getenv("TRON_SOLIDITY_NODE_URL");
-        assumeTrue(hasText(solidityUrl), "未配置可选固化节点，跳过两类节点对比");
-        TronNodeEndpointProperties solidityNode = endpoint("solidity-acceptance", TronNodeRole.SOLIDITY_NODE,
-            solidityUrl, System.getenv("TRON_SOLIDITY_NODE_API_KEY"));
+    void shouldReadSameSolidifiedBlockFromBothNodeRoles() {
         assertThat(nodeClient.getBlockHeaderByHeight(solidityNode.toSdkEndpoint(), 0).blockId())
             .isEqualToIgnoringCase(expectedGenesisBlockId);
 
@@ -105,7 +107,7 @@ class TronNodeTestnetAcceptanceTest {
     @Test
     void shouldFindRewindAndReplayInjectedOldBranchesUsingRealTestnetBlocks() throws Exception {
         TronNodeManager manager = validatedManager();
-        long lastHeight = manager.getHeadHeight().blockHeight() - 100;
+        long lastHeight = manager.getSolidHeight().blockHeight() - 100;
         long firstHeight = lastHeight - 8;
         properties.setStartBlockHeight(firstHeight + 1);
         Map<Long, TronNodeHeight> headers = new LinkedHashMap<>();

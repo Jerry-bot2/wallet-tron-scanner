@@ -195,6 +195,22 @@ class DepositConfirmedPublisherTest {
     }
 
     @Test
+    void shouldKeepUint256AmountInConfirmedEvent() {
+        BigInteger maxUint256 = BigInteger.ONE.shiftLeft(256).subtract(BigInteger.ONE);
+        KafkaPublisher kafkaPublisher = successfulKafkaPublisher();
+        DepositConfirmedPublisher publisher = new DepositConfirmedPublisher(
+            new TronScannerProperties(), kafkaPublisher);
+
+        publisher.publishAndWait(blockData(), List.of(deposit(0, maxUint256)));
+
+        ArgumentCaptor<DepositConfirmedEvent> eventCaptor = ArgumentCaptor.captor();
+        verify(kafkaPublisher).publish(
+            eq(ChainKafkaTopics.DEPOSIT_CONFIRMED_TOPIC), eq("TRON"), eventCaptor.capture());
+        assertThat(eventCaptor.getValue().getDeposits().getFirst().getRawAmount())
+            .isEqualTo(maxUint256);
+    }
+
+    @Test
     void shouldKeepProducerFailureAsCause() {
         TronScannerProperties scannerProperties = new TronScannerProperties();
         KafkaPublisher kafkaPublisher = mock(KafkaPublisher.class);
@@ -208,6 +224,25 @@ class DepositConfirmedPublisherTest {
             .hasCause(failure)
             .extracting(exception -> ((BizException) exception).getErrorCode())
             .isEqualTo(ScannerBizErrCode.HEAD_SCAN_KAFKA_PUBLISH_FAILED);
+    }
+
+    @Test
+    void shouldStopRemainingBatchesAfterCurrentBatchFails() {
+        RuntimeException failure = new RuntimeException("Broker unavailable");
+        KafkaPublisher kafkaPublisher = mock(KafkaPublisher.class);
+        when(kafkaPublisher.publish(anyString(), anyString(), any()))
+            .thenReturn(CompletableFuture.completedFuture(new KafkaPublishResult(
+                ChainKafkaTopics.DEPOSIT_CONFIRMED_TOPIC, 0, 10L, 100L)))
+            .thenReturn(CompletableFuture.failedFuture(failure));
+        DepositConfirmedPublisher publisher = new DepositConfirmedPublisher(
+            new TronScannerProperties(), kafkaPublisher);
+
+        assertThatThrownBy(() -> publisher.publishAndWait(blockData(), deposits(601)))
+            .isInstanceOf(BizException.class)
+            .hasCause(failure);
+
+        // 第一批已确认，第二批失败后立即停止，最后1笔不会继续发送。
+        verify(kafkaPublisher, times(2)).publish(anyString(), anyString(), any());
     }
 
     @Test
@@ -247,6 +282,14 @@ class DepositConfirmedPublisherTest {
     }
 
     private TronDepositEvent deposit(int index) {
+        return deposit(index, BigInteger.valueOf(1_000_000L));
+    }
+
+    private List<TronDepositEvent> deposits(int count) {
+        return IntStream.range(0, count).mapToObj(this::deposit).toList();
+    }
+
+    private TronDepositEvent deposit(int index, BigInteger rawAmount) {
         return new TronDepositEvent(
             "USDT",
             "TUsdtContract",
@@ -257,6 +300,14 @@ class DepositConfirmedPublisherTest {
             Instant.parse("2026-10-03T12:00:00Z"),
             "TSender",
             "TReceiver",
-            BigInteger.valueOf(1_000_000L));
+            rawAmount);
+    }
+
+    private KafkaPublisher successfulKafkaPublisher() {
+        KafkaPublisher kafkaPublisher = mock(KafkaPublisher.class);
+        when(kafkaPublisher.publish(anyString(), anyString(), any()))
+            .thenReturn(CompletableFuture.completedFuture(new KafkaPublishResult(
+                ChainKafkaTopics.DEPOSIT_CONFIRMED_TOPIC, 0, 10L, 100L)));
+        return kafkaPublisher;
     }
 }
