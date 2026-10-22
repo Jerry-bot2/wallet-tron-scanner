@@ -213,7 +213,7 @@ class HeadBlockScanAcceptanceTest {
     @Test
     void shouldStopWhenNextSolidifiedBlockCannotConnect(CapturedOutput output) {
         afterAck = () -> {
-            forkFrom(99, "new");
+            replaceSolidifiedBlocksAfter(99, "new");
             afterAck = () -> { };
         };
 
@@ -238,7 +238,7 @@ class HeadBlockScanAcceptanceTest {
     @Test
     void shouldStopAndPreserveProgressWhenSolidifiedCheckpointChanges(CapturedOutput output) {
         job.runRound();
-        forkFrom(105, "new");
+        replaceSolidifiedBlocksAfter(105, "new");
         int messageCount = sentEvents.size();
 
         assertThatThrownBy(job::runRound).isInstanceOf(BizException.class)
@@ -256,7 +256,7 @@ class HeadBlockScanAcceptanceTest {
     @Test
     void shouldNotCommitMixedBranchDataWhenBlockChangesDuringReceiptRead() {
         afterReceipt = () -> {
-            forkFrom(99, "new");
+            replaceSolidifiedBlocksAfter(99, "new");
             afterReceipt = () -> { };
         };
 
@@ -355,11 +355,12 @@ class HeadBlockScanAcceptanceTest {
     }
 
     /**
-     * 保留共同区块之前的分支，替换之后的 Hash 和父 Hash，交易 ID 保持不变。
+     * 模拟节点返回的固化链证据发生变化：保留指定高度，替换之后区块的Hash和父Hash。
+     * 真实网络出现该情况时不能自动回退，测试只用于确认Scanner会停止并保留检查点。
      */
-    private void forkFrom(long commonHeight, String prefix) {
-        String parentHash = chain.get(commonHeight).block().path("blockID").textValue();
-        for (long height = commonHeight + 1; height <= chain.lastKey(); height++) {
+    private void replaceSolidifiedBlocksAfter(long unchangedHeight, String prefix) {
+        String parentHash = chain.get(unchangedHeight).block().path("blockID").textValue();
+        for (long height = unchangedHeight + 1; height <= chain.lastKey(); height++) {
             SampleBlock old = chain.get(height);
             ObjectNode block = old.block().deepCopy();
             String hash = prefix + height;

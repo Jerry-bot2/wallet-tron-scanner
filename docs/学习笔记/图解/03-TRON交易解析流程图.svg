@@ -87,7 +87,7 @@
   <rect x="745" y="1170" width="650" height="120" rx="17" class="red"/>
   <text x="772" y="1208" class="heading">目标数据异常 · 整块失败</text>
   <text x="772" y="1243" class="body">缺少回执 · Topic 错误 · 地址错误 · 金额格式错误</text>
-  <text x="772" y="1273" class="small">不返回部分结果，不允许后续推进 HEAD_BLOCK 检查点</text>
+  <text x="772" y="1273" class="small">不返回部分结果，不允许推进当前固化扫描检查点</text>
 
   <rect x="45" y="1330" width="1350" height="60" rx="17" class="purple"/>
   <text x="72" y="1368" class="heading">样本验收：5 笔交易 → TRX 充值 1 条 + USDT 充值 1 条；失败、未知代币和外部地址共 3 条被过滤</text>

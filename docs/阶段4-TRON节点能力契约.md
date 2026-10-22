@@ -1,180 +1,160 @@
-# 阶段4：TRON 节点能力契约
+# 阶段4：TRON节点能力契约
 
-本文冻结 `wallet-tron-scanner` 访问 TRON 节点的边界。阶段 4.1～4.7 必须遵守本文，不在业务代码中自行拼接节点 URL、判断主备节点或解释节点异常。
+本文冻结 `wallet-tron-scanner` 访问 TRON 节点的边界。业务代码不拼接节点 URL，不自行判断主备节点，也不把未固化 Head 高度作为充值扫描上界。
 
 ## 1. 技术决策
 
-1. 首期使用 java-tron 原生 HTTP API，不引入 Trident、gRPC 和 JSON-RPC。
-2. Scanner 只使用节点读取能力，不构造、签名或广播链上交易。
-3. 节点原始响应只存在于 `client.tron` 包，后续扫块和解析代码只依赖 Scanner 内部模型。
-4. 节点客户端不做隐式重试；主备切换由 `TronNodeManager` 统一控制。
-5. 节点状态只保存在内存，不增加数据库表。
-
-选择 HTTP API 的原因是当前阶段只需要三个读取能力，继续引入 Trident 会额外带入 gRPC、Protobuf、签名和交易构造能力，扩大依赖面但不能改善当前业务闭环。
+1. 使用 java-tron 原生 HTTP API，不引入 Trident、gRPC 和 JSON-RPC。
+2. Scanner 只读取链数据，不构造、签名或广播交易。
+3. SolidityNode 提供最新固化高度，FullNode 提供完整区块和交易回执。
+4. `TronNodeClient` 完成单次请求；`TronNodePool` 和 `TronNodeManager` 统一完成选点与安全切换。
+5. 节点状态只保存在内存，不增加节点状态表。
 
 ## 2. 节点职责
 
-| 节点角色 | 职责 | 禁止事项 |
+| 节点角色 | 职责 | 使用限制 |
 |---|---|---|
-| FullNode 主节点 | 查询最新 Head 高度；按高度读取完整区块；作为正常扫块数据源 | 不作为最终到账依据 |
-| FullNode 备用节点 | 主节点不可用或明显落后时接管 Head 查询和区块读取 | 主节点正常时不得随机分流；按高度读取时，未同步到请求高度的节点不得接管 |
-| SolidityNode（可选） | 节点客户端保留固化高度读取能力，供节点对照验收 | 不参与 Scanner 扫块和分叉恢复 |
+| FullNode 主节点 | 按高度读取完整区块、交易和回执 | 只能读取 SolidityNode 已固化高度以内的区块 |
+| FullNode 备用节点 | 主节点失败或落后时整组重读同一区块 | 不得把不同节点的区块与回执混合 |
+| SolidityNode | 返回 TRON 最新固化高度 | 只确定扫描上界，不提供完整业务解析数据 |
 
-SolidityNode 与 FullNode 虽然读取同一条链，但服务高度语义不同，不能互相作为无条件备用节点。`wallet-chain-server` 会独立读取 SolidityNode 核验充值是否最终固化；Scanner 通过 FullNode 扫描并查找共同区块，不读取固化节点推进充值状态。
-
-### 2.1 最终责任边界
+### 2.1 最终充值边界
 
 ```text
-Scanner 读取 FullNode Head
-→ 读取同一 FullNode 的区块和交易回执
-→ 解析 TRX / TRC20 充值
-→ 上报 wallet-chain-server
-→ wallet-chain-server 幂等创建 CONFIRMING 充值记录
-→ wallet-chain-server 独立通过 SolidityNode 核验固化交易和回执
-→ CONFIRMING 推进为 CONFIRMED 或 ORPHANED
+Scanner查询SolidityNode最新固化高度S
+→ 通过FullNode顺序读取检查点到S之间的完整区块
+→ 解析TRX / TRC20充值
+→ 发送DepositConfirmedEvent
+→ wallet-chain-server幂等创建已确认充值并累计归集
 ```
 
-- Scanner 负责及时发现和 Head 分叉重扫，不判定充值最终到账。
-- `wallet-chain-server` 负责保存链事实、核验固化结果和推进充值状态。
-- Scanner 扫块和分叉恢复使用 FullNode；chain-server 独立查询固化交易和回执。
+Scanner 发出的是最终充值事件。Chain Server 不再保存 `CONFIRMING/ORPHANED` 中间状态，也不再重复查询 SolidityNode 确认。
 
-## 3. 冻结的 TRON HTTP 接口
+## 3. 使用的TRON HTTP接口
 
-### 3.1 FullNode 最新 Head
+### 3.1 FullNode最新Head
 
 ```http
 POST /wallet/getblock
 Content-Type: application/json
 
-{"detail": false}
+{"detail":false}
 ```
 
-用途：取得节点当前最新 Head 区块头。省略 `id_or_num` 表示最新区块，`detail=false` 只返回区块头，不下载交易列表。该区块可能尚未固化。
+用于节点健康和落后判断，不决定充值扫描边界。
 
-### 3.2 FullNode 按高度读取区块
+### 3.2 FullNode按高度读取完整区块
 
 ```http
 POST /wallet/getblockbynum
 Content-Type: application/json
 
-{"num": 61815425}
+{"num":61815425}
 ```
 
-用途：按确定高度读取完整区块和交易列表，供后续 Head 顺序扫描。
+读取区块头和交易列表。
 
-### 3.3 SolidityNode 最新固化高度
+### 3.3 SolidityNode最新固化高度
 
 ```http
 POST /walletsolidity/getblock
 Content-Type: application/json
 
-{"detail": false}
+{"detail":false}
 ```
 
-用途：只取得 SolidityNode 当前最新固化区块头，不下载交易列表。固化高度正常情况下落后 Head，不以两者存在高度差直接判定节点异常。
+返回本轮扫描允许到达的最高固化区块。
 
-### 3.4 FullNode 按区块高度读取交易回执
+### 3.4 FullNode按高度读取交易回执
 
 ```http
 POST /wallet/gettransactioninfobyblocknum
 Content-Type: application/json
 
-{"num": 61815425}
+{"num":61815425}
 ```
 
-用途：获取指定 Head 区块中全部交易的执行结果和日志。TRC20 `Transfer` 事件位于回执 `log` 中，仅读取 `/wallet/getblockbynum` 返回的交易体无法完成 TRC20 充值解析。
+TRC20 `Transfer` 日志位于回执中，不能只读取交易体。
 
-### 3.5 启动网络校验
+### 3.5 区块头与网络校验
 
-调用 FullNode 的 `POST /wallet/getblock` 和可选 SolidityNode 的 `POST /walletsolidity/getblock`，发送 `{"id_or_num":"0","detail":false}` 查询创世区块头，将返回的 `blockID` 与当前环境配置的 `expectedGenesisBlockId` 比较。仅配置 `MAINNET`、`NILE` 等文本名称不能证明节点实际连接到了正确网络。
+按高度读取区块头用于：
 
-网络校验用于节点启动和健康探测。扫描末块核对、共同区块查找和读取回执后的 Hash 复核也使用区块头接口，例如高度 `1000`：`{"id_or_num":"1000","detail":false}`。完整交易仍通过 `/wallet/getblockbynum` 读取，回执仍单独读取，Hash 复核步骤保留。
+- 通过创世区块 ID 确认节点网络。
+- 每轮复核数据库检查点 Hash。
+- 完整区块和回执读完后再次确认区块 Hash 没有变化。
 
 ## 4. 请求约束
 
-1. 节点基础地址不允许携带业务路径，路径由 Client 固定。
-2. 所有请求显式声明接受 JSON；POST 请求使用 `application/json`。
-3. 配置了 API Key 时统一使用 `TRON-PRO-API-KEY` 请求头；未配置时不发送空请求头。
-4. API Key 不允许出现在 URL、异常信息、日志和指标标签中。
-5. 连接超时默认 `3s`，完整响应超时默认 `10s`。响应头已返回但响应体未收完，或持续慢速传输，都不能延长这次请求的等待时间；超时取消请求并返回 `TRON_NODE_TIMEOUT`。
-6. Client 单次调用不自动重试，避免一层 HTTP 重试和一层节点切换相互叠加。
-7. 单次响应默认上限为 `16 MiB`，并允许通过配置调整；禁止无上限缓存响应正文。TRON 区块交易数据上限约为 `2 MB`，JSON 编码和交易回执会进一步放大响应，`4 MiB` 不适合作为生产硬上限。
+1. 节点基础地址不携带业务路径，路径由 SDK 固定。
+2. POST 使用 `application/json`，配置 API Key 时使用 `TRON-PRO-API-KEY` 请求头。
+3. API Key 不进入 URL、异常信息、日志和指标标签。
+4. 连接超时默认 `3s`，完整响应超时默认 `10s`，响应体默认上限 `16 MiB`。
+5. Client 单次调用不隐式重试，避免与节点池切换叠加。
+6. 一个区块的区块体、回执和最后 Hash 复核必须固定在同一个 FullNode 完成；任一步失败时由节点池在备用节点上整组重读。
 
-超时值后续允许通过 Nacos 调整，但字段含义和默认值不再改变。
-
-## 5. Scanner 内部接口
-
-后续节点实现必须收敛到以下三个能力：
+## 5. Scanner内部入口
 
 ```java
 TronNodeHeight getHeadHeight();
 
 TronNodeHeight getSolidHeight();
 
+TronNodeHeight getBlockHeaderByHeight(long blockHeight);
+
 TronBlockData getBlockDataByHeight(long blockHeight);
 ```
 
-调用方不传 `nodeCode`，不感知主节点或备用节点。具体节点由 `TronNodeManager` 选择。
+调用方不传 `nodeCode`，不感知节点 URL 或主备关系。
 
 ### 5.1 `TronNodeHeight`
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `nodeCode` | `String` | 实际响应本次请求的节点编码 |
-| `blockHeight` | `long` | 区块高度，必须大于等于 0 |
-| `blockId` | `String` | 节点返回的区块 ID，不能为空 |
-| `blockTimestamp` | `Instant` | 区块头时间，不使用 Scanner 本机时间代替 |
+| 字段 | 说明 |
+|---|---|
+| `nodeCode` | 实际响应节点编码 |
+| `blockHeight` | 区块高度 |
+| `blockId` | 区块 ID |
+| `blockTimestamp` | 链上区块时间 |
 
 ### 5.2 `TronBlockData`
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `nodeCode` | `String` | 实际读取区块的节点编码 |
-| `blockHeight` | `long` | 区块高度，必须与请求高度一致 |
-| `blockId` | `String` | 当前区块 ID |
-| `parentBlockId` | `String` | 父区块 ID，用于后续连续性校验 |
-| `blockTimestamp` | `Instant` | 链上区块时间 |
-| `transactions` | `List<TronTransaction>` | 区块内完整交易列表，空块返回空集合，不返回 `null` |
-| `receipts` | `Map<String, TronTransactionReceipt>` | 按 `txId` 组织的交易回执，供 TRC20 事件和执行结果解析 |
-
-`TronNodeManager` 必须在同一个 FullNode 上读取区块与对应回执，其中任意一步失败时，将整组读取切换到同一个备用节点重新执行，禁止把不同节点的未固化区块和回执混合。
-
-`TronTransaction` 和 `TronTransactionReceipt` 的最小解析字段在阶段 5 冻结；阶段 4 必须保证交易体、执行结果和 `log` 不会在 Client 映射时丢失。
+| 字段 | 说明 |
+|---|---|
+| `nodeCode` | 实际读取节点编码 |
+| `blockHeight` | 区块高度 |
+| `blockId` | 当前区块 ID |
+| `parentBlockId` | 父区块 ID，用于连续性校验 |
+| `blockTimestamp` | 链上区块时间 |
+| `transactions` | 完整交易列表 |
+| `receipts` | 按 txId 组织的交易回执 |
 
 ## 6. 响应校验
 
-满足以下全部条件才算节点调用成功：
+节点调用同时满足以下条件才算成功：
 
 1. HTTP 状态码为 2xx。
 2. 响应体不为空，且不存在 TRON `Error` 字段。
-3. `blockID`、`block_header.raw_data.number` 和 `timestamp` 存在且格式合法。
-4. 按高度查询时，返回高度与请求高度完全一致。
-5. 回执中的 `blockNumber` 必须与请求高度一致，txId 不得重复。
-6. 节点启动校验时，创世区块 ID 与 `expectedGenesisBlockId` 一致。
+3. 区块 ID、高度和时间存在且格式正确。
+4. 按高度读取时，响应高度与请求高度一致。
+5. 回执区块高度与请求高度一致，txId 不重复。
+6. 启动校验时创世区块 ID 与当前环境一致。
 
-TRON 节点可能在 HTTP 200 响应中返回 `Error`，因此不能只根据 HTTP 状态码判断成功。
+HTTP 200 中也可能携带 TRON 错误，因此不能只判断 HTTP 状态码。
 
-## 7. 错误分类
+## 7. 错误与切换
 
-阶段 4 使用 `913xxx` 错误码段：
+| 错误 | 是否切换节点 | 处理 |
+|---|---|---|
+| 连接失败、超时、限流、5xx | 是 | 在备用节点上完整重读 |
+| JSON或协议响应错误 | 是 | 标记当前节点失败并完整重读 |
+| 节点网络不一致 | 否 | 永久隔离错误节点 |
+| 请求高度不存在或节点未同步 | 是 | 选择已同步到目标高度的节点 |
+| 所有节点不可用 | 否 | 当前轮失败，检查点不变 |
+| 固化检查点Hash或父Hash不一致 | 否 | ERROR 916003，停止并人工核查 |
 
-| 错误 | 预留错误码 | 含义 | 是否允许切换节点 |
-|---|---:|---|---|
-| `TRON_NODE_CONFIG_INVALID` | `913001` | 节点编码、角色、URL、超时或网络指纹配置错误 | 否，启动失败 |
-| `TRON_NODE_CONNECT_FAILED` | `913002` | DNS、拒绝连接、TLS 或网络不可达 | 是 |
-| `TRON_NODE_TIMEOUT` | `913003` | 连接或响应超时 | 是 |
-| `TRON_NODE_RATE_LIMITED` | `913004` | HTTP 429/限流响应或节点资源不足 | 是 |
-| `TRON_NODE_REMOTE_ERROR` | `913005` | 非 2xx 或响应体包含 `Error` | 5xx 允许；普通 4xx 不允许 |
-| `TRON_NODE_RESPONSE_INVALID` | `913006` | JSON、区块头、高度或时间字段不合法 | 是，并记录节点异常 |
-| `TRON_NODE_NETWORK_MISMATCH` | `913007` | 创世区块 ID 与当前环境不一致 | 否，节点永久隔离 |
-| `TRON_BLOCK_NOT_FOUND` | `913008` | 指定高度不存在或节点尚未同步到该高度 | 可换节点，不推进游标 |
-| `TRON_NODE_UNAVAILABLE` | `913009` | 所有符合条件的节点均不可用 | 否，本轮失败 |
-
-业务层只处理稳定错误类型，不解析第三方异常文本。
+节点故障只影响当前轮，不允许返回伪造高度、空区块或提前推进检查点。
 
 ## 8. 配置边界
-
-阶段 4.1 按以下结构实现配置，字段名称在本阶段冻结：
 
 ```yaml
 nb:
@@ -183,6 +163,7 @@ nb:
       chain-network: ${TRON_NETWORK:MAINNET}
       expected-genesis-block-id: ${TRON_GENESIS_BLOCK_ID}
       start-block-height: ${TRON_SCAN_START_BLOCK_HEIGHT}
+      max-blocks-per-run: 100
       node:
         connect-timeout: 3s
         read-timeout: 10s
@@ -202,46 +183,32 @@ nb:
             priority: 2
             base-url: ${TRON_FULL_NODE_BACKUP_URL:}
             api-key: ${TRON_FULL_NODE_BACKUP_API_KEY:}
+          - code: solidity-primary
+            role: SOLIDITY_NODE
+            priority: 1
+            base-url: ${TRON_SOLIDITY_NODE_URL:}
+            api-key: ${TRON_SOLIDITY_NODE_API_KEY:}
 ```
 
-- `base-url`、API Key 和创世区块 ID 只能由 Nacos 或环境变量提供，不写入代码仓库。
-- `start-block-height` 表示首次扫描起点，前一区块从 FullNode 读取，不必等待固化；正常续扫以数据库检查点为准，分叉时查找最近共同区块。
-- `failure-threshold` 表示节点连续失败多少次后标记为不健康，默认 `3`。它不限制当前请求使用备用节点完成一次安全降级。
-- `height-lag-threshold` 表示 FullNode 比本轮所有健康 FullNode 的最高高度落后多少个区块后视为明显落后，默认 `20`；单个节点不能凭自身高度判定是否落后。
-- `recovery-cooldown` 表示原主节点恢复后至少稳定观察多久才允许重新成为主节点，默认 `60s`。
-- `block-history-size` 默认 `20000`，通常不必配置。摘要连续保留，每 100 个高度清理旧记录；保留范围内找不到共同区块时保持进度并报错。
-- Scanner 默认只配置 FullNode；节点客户端保留通用固化读取能力，扫块与分叉恢复不依赖它。
-- API Key 允许为空，以支持自建 java-tron 节点。
-- API Key 属于访问凭证，但不是链上私钥；仍必须按敏感配置管理。
-- Scanner 不接收和保存私钥、助记词、签名密钥、`key_ref` 或交易签名材料。
+- FullNode 和 SolidityNode 都是启动必需配置，并且必须通过同一创世区块校验。
+- `start-block-height` 是首次扫描的第一个高度；初始化检查点保存其前一块。
+- `max-blocks-per-run` 限制单轮工作量，不改变固化边界。
+- 节点地址、API Key 和创世区块 ID 由 Nacos 或环境变量提供。
+- Scanner 不接收私钥、助记词、`key_ref` 或任何签名材料。
 
-## 9. 本阶段明确不做
+## 9. 代码职责
 
-- 不实现 HTTP Client 和真实节点调用。
-- 不实现节点健康状态、主备切换和恢复冷却。
-- 不实现区块交易解析。
-- 不推进 `HEAD_BLOCK` 检查点。
-- 不创建充值记录或调用充值上报接口。
-- 不动态刷新并重建节点客户端。
+1. `TronNodeClient`：一次 HTTP 调用、反序列化和协议校验。
+2. `TronNodePool`：节点健康、排序、失败冷却和备用选择。
+3. `TronBlockGateway`：在同一 FullNode 上读取区块、回执并复核 Hash。
+4. `TronNodeManager`：向 Scanner 暴露稳定节点能力并记录读取统计。
+5. `HeadBlockContinuityService`：校验数据库检查点和固化区块连续性。
 
-## 10. 后续实现约束
-
-1. `TronNodeClient` 只负责一次 HTTP 调用、响应反序列化和协议校验。
-2. `TronNodeManager` 只负责节点状态、选择和一次安全降级；按高度读取时只选择已同步到该高度的节点。
-3. 业务代码只能调用 `TronNodeManager`，不能直接依赖 HTTP Client。
-4. 本地健康调度和扫块 Job 只负责触发，不复制节点选择逻辑。
-5. 节点全部不可用时必须失败关闭，不允许返回伪造高度、空区块或推进检查点。
-6. 共同区块查找固定使用一个 FullNode；中途失败结束本轮，下轮重新选择节点并完整查找，不混用主备结果。
-
-## 11. 官方依据
+## 10. 官方依据
 
 - [FullNode HTTP API](https://developers.tron.network/reference/full-node-api-overview)
-- [FullNode GetBlock（支持仅区块头）](https://developers.tron.network/reference/getblock-1)
+- [FullNode GetBlock](https://developers.tron.network/reference/getblock-1)
 - [FullNode GetBlockByNum](https://developers.tron.network/reference/wallet-getblockbynum)
 - [FullNode GetTransactionInfoByBlockNum](https://developers.tron.network/reference/gettransactioninfobyblocknum)
-- [SolidityNode GetBlock（支持仅区块头）](https://developers.tron.network/reference/getblock-2)
-- [TRON Blocks](https://developers.tron.network/docs/block)
-- [Exchange Wallet Integration](https://developers.tron.network/docs/exchangewallet-integrate-with-the-tron-network)
-
-
-阶段 6.5 扩展 `openBlockHeaderReader`：按扫描进度选择已同步到该高度的 FullNode，并固定为本次查找的读取节点。查找期间读取失败时将节点放入冷却期，下一轮可重新选择备用节点。Scanner 初始化和回退不依赖 SolidityNode。
+- [SolidityNode GetBlock](https://developers.tron.network/reference/getblock-2)
+- [TRON Exchange Wallet Integration](https://developers.tron.network/docs/exchangewallet-integrate-with-the-tron-network)
