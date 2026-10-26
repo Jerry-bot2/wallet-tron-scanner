@@ -8,6 +8,7 @@ import com.nb.tron.scanner.index.TronAddressIndex;
 import com.nb.tron.scanner.index.TronCurrencyIndex;
 import com.nb.tron.scanner.model.TronCurrencyConfig;
 import com.nb.tron.scanner.model.TronDepositEvent;
+import com.nb.tron.sdk.codec.TronAddressCodec;
 import com.nb.tron.sdk.enums.TronTokenStandard;
 import com.nb.tron.sdk.model.TronBlockData;
 import com.nb.tron.sdk.model.TronTransaction;
@@ -85,6 +86,16 @@ class DepositDiscoveryTrxTest {
         TronTransaction externalTransaction = transaction("SUCCESS", 1_000_000L);
         when(addressIndex.findPurpose(TO_BASE58)).thenReturn(null);
         assertThat(discoveryService.discover(block(externalTransaction))).isEmpty();
+    }
+
+    @Test
+    void shouldIgnoreTrxTransferFromPlatformAddress() {
+        when(addressIndex.findPurpose(new TronAddressCodec().fromHex(FROM_HEX)))
+            .thenReturn(AddressPurpose.RESOURCE);
+        when(addressIndex.findPurpose(TO_BASE58)).thenReturn(AddressPurpose.DEPOSIT);
+
+        assertThat(discoveryService.discover(block(transaction("SUCCESS", 1_000_000L))))
+            .isEmpty();
     }
 
     @Test

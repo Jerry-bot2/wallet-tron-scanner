@@ -141,6 +141,17 @@ class DepositDiscoveryTrc20Test {
     }
 
     @Test
+    void shouldIgnoreTrc20TransferFromPlatformAddress() {
+        when(addressIndex.findPurpose(addressCodec.fromTopic(FROM_TOPIC)))
+            .thenReturn(AddressPurpose.HOT);
+        when(addressIndex.findPurpose(TO_BASE58)).thenReturn(AddressPurpose.DEPOSIT);
+        TronTransaction transaction = transaction("SUCCESS");
+        TronTransactionReceipt receipt = receipt("SUCESS", transferLog(USDT_CONTRACT_HEX));
+
+        assertThat(discoveryService.discover(block(transaction, receipt))).isEmpty();
+    }
+
+    @Test
     void shouldIgnoreFailedTransaction() {
         TronTransaction failedTransaction = transaction("REVERT");
         TronTransactionReceipt receipt = receipt("SUCESS", transferLog(USDT_CONTRACT_HEX));

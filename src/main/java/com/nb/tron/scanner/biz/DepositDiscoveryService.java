@@ -31,17 +31,26 @@ public class DepositDiscoveryService {
     private final TronCurrencyIndex currencyIndex;
 
     /**
-     * 1. 固定本轮币种快照，交给SDK解析这些资产的完整区块转账。<br>
-     * 2. 只保留收款地址属于平台充值地址的转账。<br>
-     * 3. 补充业务币种，返回待发送的充值事实；链编码由消息发布器统一写入，本类不解析协议JSON。
+     * 1. 固定本轮币种快照，交给SDK解析这些资产的完整区块转账<br>
+     * 2. 只保留外部地址转入平台DEPOSIT地址的转账<br>
+     * 3. 补充业务币种，返回待发送的充值事实；链编码由消息发布器统一写入，本类不解析协议JSON
      */
     public List<TronDepositEvent> discover(TronBlockData block) {
         Map<TronAsset, TronCurrencyConfig> currencies = currencyIndex.snapshot();
         List<TronTransferEvent> transfers = TronSdkCalls.execute(() -> blockParser.parse(block, currencies.keySet()));
         return transfers.stream()
-            .filter(event -> addressIndex.findPurpose(event.transfer().toAddress()) == AddressPurpose.DEPOSIT)
+            .filter(this::isExternalDeposit)
             .map(event -> toDeposit(block, event, currencies.get(event.asset())))
             .toList();
+    }
+
+    /**
+     * 外部充值必须由非平台地址转入平台DEPOSIT地址
+     */
+    private boolean isExternalDeposit(TronTransferEvent event) {
+        AddressPurpose sourcePurpose = addressIndex.findPurpose(event.transfer().fromAddress());
+        AddressPurpose targetPurpose = addressIndex.findPurpose(event.transfer().toAddress());
+        return sourcePurpose == null && targetPurpose == AddressPurpose.DEPOSIT;
     }
 
     private TronDepositEvent toDeposit(TronBlockData block, TronTransferEvent event, TronCurrencyConfig currency) {
