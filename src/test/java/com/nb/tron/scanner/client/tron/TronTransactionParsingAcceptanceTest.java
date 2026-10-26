@@ -20,6 +20,8 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -50,12 +52,19 @@ class TronTransactionParsingAcceptanceTest {
     private static final String DEPOSIT_ADDRESS_HEX =
         "411111111111111111111111111111111111111111";
 
+    private static final String PLATFORM_SOURCE_ADDRESS_HEX =
+        "413333333333333333333333333333333333333333";
+
     private static final String USDT_CONTRACT_ADDRESS =
         "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 
     private HttpServer server;
 
     private TronNodeClient nodeClient;
+
+    private TronAddressCodec addressCodec;
+
+    private TronAddressIndex addressIndex;
 
     private DepositDiscoveryService blockParser;
 
@@ -75,11 +84,11 @@ class TronTransactionParsingAcceptanceTest {
 
         TronScannerProperties scannerProperties = new TronScannerProperties();
         ObjectMapper objectMapper = new ObjectMapper();
-        TronAddressCodec addressCodec = new TronAddressCodec();
+        addressCodec = new TronAddressCodec();
         nodeClient = new TronNodeClient(HttpClient.newHttpClient(), objectMapper,
             scannerProperties.getNode().getReadTimeout(), scannerProperties.getNode().getMaxResponseSize().toBytes());
 
-        TronAddressIndex addressIndex = mock(TronAddressIndex.class);
+        addressIndex = mock(TronAddressIndex.class);
         when(addressIndex.findPurpose(addressCodec.fromHex(DEPOSIT_ADDRESS_HEX)))
             .thenReturn(AddressPurpose.DEPOSIT);
         TronCurrencyIndex currencyIndex = supportedCurrencies();
@@ -102,6 +111,16 @@ class TronTransactionParsingAcceptanceTest {
         assertTrxDeposit(events.get(0));
         assertUsdtDeposit(events.get(1));
         assertThat(blockParser.discover(blockData)).isEqualTo(events);
+    }
+
+    @ParameterizedTest
+    @EnumSource(AddressPurpose.class)
+    void shouldIgnoreTrxAndTrc20FromPlatformAddress(AddressPurpose sourcePurpose) {
+        when(addressIndex.findPurpose(addressCodec.fromHex(PLATFORM_SOURCE_ADDRESS_HEX)))
+            .thenReturn(sourcePurpose);
+        TronBlockData blockData = nodeClient.getBlockDataByHeight(fullNode().toSdkEndpoint(), BLOCK_HEIGHT);
+
+        assertThat(blockParser.discover(blockData)).isEmpty();
     }
 
     private void assertTrxDeposit(TronDepositEvent event) {
